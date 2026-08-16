@@ -278,7 +278,7 @@ export function TimeGridView({
                   onContextMenu={(e) => handlers.onSlotMenu(e, day, true)}
                   className={clsx(
                     "border-l border-line transition-colors hover:bg-surface-2",
-                    isToday(day) && "bg-brand-soft/40",
+                    isToday(day) && !single && "bg-brand-soft/40",
                   )}
                 />
               ))}
@@ -347,7 +347,7 @@ export function TimeGridView({
                 key={day.toISOString()}
                 className={clsx(
                   "relative border-l border-line",
-                  isToday(day) && "bg-brand-soft/25",
+                  isToday(day) && !single && "bg-brand-soft/25",
                 )}
                 onPointerDown={(e) => {
                   const { minutes } = pointToTime(e.clientX, e.clientY);
@@ -389,7 +389,7 @@ export function TimeGridView({
                     key={p.event.id}
                     event={p.event}
                     selected={handlers.selectedId === p.event.id}
-                    compact={p.height * DAY_H < 34}
+                    compact={p.height * DAY_H < 44}
                     style={{
                       top: p.top * DAY_H,
                       height: Math.max(18, p.height * DAY_H - 2),
