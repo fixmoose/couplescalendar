@@ -7,3 +7,16 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# CouplesCalendar
+
+Shared calendar app. Next.js 16 App Router, React 19, Tailwind 4, TypeScript.
+
+- **All data access goes through `useStore()` in `src/lib/store.tsx`.** It is the
+  seam Supabase will replace — components never touch storage directly.
+- Tables in `supabase/schema.sql` use the `CC_` prefix and mirror `src/lib/types.ts`.
+- Colours: never hardcode hex in components. Set `--c` via `colorVar(key)` from
+  `src/lib/colors.ts` and use the `.cc-dot` / `.cc-tint` / `.cc-solid` helpers so
+  light and dark both work.
+- Date maths and layout packing live in `src/lib/date.ts`, not in components.
+- Before finishing: `npm run lint` and `npx tsc --noEmit` must both be clean.

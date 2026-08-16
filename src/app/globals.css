@@ -1,26 +1,165 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand — taken from the CouplesCalendar mark */
+  --cc-brand: #dc6b15;
+  --cc-brand-strong: #c05a0c;
+  --cc-brand-soft: #fdf1e7;
+
+  --bg: #f6f6f7;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --border: #e6e6ea;
+  --border-strong: #d5d5dc;
+  --text: #1a1a1e;
+  --text-muted: #6b6b76;
+  --text-faint: #9a9aa5;
+  --ring: rgba(220, 107, 21, 0.35);
+  --shadow-sm: 0 1px 2px rgba(16, 16, 20, 0.06);
+  --shadow-md: 0 6px 24px -6px rgba(16, 16, 20, 0.16);
+  --shadow-lg: 0 24px 60px -18px rgba(16, 16, 20, 0.28);
+}
+
+.dark {
+  --cc-brand: #f08133;
+  --cc-brand-strong: #ff9a52;
+  --cc-brand-soft: #35210f;
+
+  --bg: #0d0d10;
+  --surface: #16161a;
+  --surface-2: #1c1c21;
+  --border: #26262d;
+  --border-strong: #34343d;
+  --text: #ececf0;
+  --text-muted: #9c9caa;
+  --text-faint: #6d6d7a;
+  --ring: rgba(240, 129, 51, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 6px 24px -6px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 60px -18px rgba(0, 0, 0, 0.8);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-brand: var(--cc-brand);
+  --color-brand-strong: var(--cc-brand-strong);
+  --color-brand-soft: var(--cc-brand-soft);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-muted);
+  --color-ink-faint: var(--text-faint);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cc-brand);
+  outline-offset: 1px;
+}
+
+/* Thin, unobtrusive scrollbars for the time grid */
+.cc-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.cc-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.cc-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.cc-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*
+ * Calendar colours. Components set `--c` inline (from src/lib/colors.ts) and
+ * every surface below is mixed from it, so one variable drives dot, chip and
+ * border — in both themes.
+ */
+:root {
+  --contrast: #0c0c10;
+  --tint-amount: 15%;
+  --tint-border: 26%;
+  --tint-text: 62%;
+}
+.dark {
+  --contrast: #ffffff;
+  --tint-amount: 24%;
+  --tint-border: 34%;
+  --tint-text: 78%;
+}
+
+.cc-dot {
+  background: var(--c);
+}
+.cc-tint {
+  background: color-mix(in oklab, var(--c) var(--tint-amount), var(--surface));
+  color: color-mix(in oklab, var(--c) var(--tint-text), var(--contrast));
+}
+.cc-tint-border {
+  border-color: color-mix(in oklab, var(--c) var(--tint-border), var(--surface));
+}
+.cc-solid {
+  background: var(--c);
+  color: #fff;
+}
+.cc-rail {
+  box-shadow: inset 3px 0 0 var(--c);
+}
+
+@keyframes cc-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.cc-pop {
+  animation: cc-pop 0.14s ease-out;
+}
+
+@keyframes cc-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.cc-fade {
+  animation: cc-fade 0.14s ease-out;
 }
