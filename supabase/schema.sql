@@ -42,6 +42,10 @@ create table if not exists cc_calendars (
   color      text not null default 'orange',
   owner_id   uuid not null references cc_profiles (id) on delete cascade,
   group_id   uuid references cc_groups (id) on delete set null,
+  -- What people who share a group with the owner may see:
+  --   details = the whole event, busy = an anonymous block, hidden = nothing.
+  privacy    text not null default 'busy'
+             check (privacy in ('details', 'busy', 'hidden')),
   created_at timestamptz not null default now(),
   constraint cc_calendars_shared_needs_group
     check ((kind = 'shared') = (group_id is not null))
@@ -65,6 +69,8 @@ create table if not exists cc_events (
   ends_at     timestamptz not null,
   all_day     boolean not null default false,
   color       text,
+  -- Overrides the calendar's privacy for this one event; null = inherit.
+  privacy     text check (privacy in ('details', 'busy', 'hidden')),
   created_by  uuid not null references cc_profiles (id) on delete cascade,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
@@ -122,6 +128,37 @@ as $$
     where c.id = p_calendar
       and (c.owner_id = p_user or cc_is_group_member(c.group_id, p_user))
   );
+$$;
+
+-- What the viewer may see of one event: 'full', 'busy' or 'none'. Mirrors
+-- accessFor() in src/lib/access.ts — keep the two in step.
+create or replace function cc_event_access(p_event uuid, p_user uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when c.owner_id = p_user then 'full'
+    when c.kind = 'shared' and cc_is_group_member(c.group_id, p_user) then 'full'
+    when exists (
+      select 1 from cc_event_shares s
+      where s.event_id = e.id and s.user_id = p_user
+    ) then 'full'
+    when not exists (
+      select 1
+      from cc_group_members mine
+      join cc_group_members theirs on theirs.group_id = mine.group_id
+      where mine.user_id = p_user and theirs.user_id = c.owner_id
+    ) then 'none'
+    when coalesce(e.privacy, c.privacy) = 'details' then 'full'
+    when coalesce(e.privacy, c.privacy) = 'busy' then 'busy'
+    else 'none'
+  end
+  from cc_events e
+  join cc_calendars c on c.id = e.calendar_id
+  where e.id = p_event;
 $$;
 
 -- Shared calendars are read/write for the whole group; personal ones only for
@@ -229,13 +266,11 @@ create policy cc_calendars_delete on cc_calendars for delete using (owner_id = a
 create policy cc_visibility_all on cc_calendar_visibility for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- Events: readable through the calendar, or because it was shared with you.
+-- Events: the base table only ever hands over rows the viewer may see in FULL.
+-- Busy blocks come from the cc_calendar_feed view below, which is the only way
+-- to learn that someone else's time is taken — the details never leave the row.
 create policy cc_events_read on cc_events for select using (
-  cc_can_read_calendar(calendar_id, auth.uid())
-  or exists (
-    select 1 from cc_event_shares s
-    where s.event_id = cc_events.id and s.user_id = auth.uid()
-  )
+  cc_event_access(id, auth.uid()) = 'full'
 );
 create policy cc_events_insert on cc_events for insert with check (
   created_by = auth.uid() and cc_can_write_calendar(calendar_id, auth.uid())
@@ -266,3 +301,45 @@ create policy cc_event_shares_write on cc_event_shares for all using (
 ) with check (
   shared_by = auth.uid()
 );
+
+-- ---------------------------------------------------------------------------
+-- Reading feed
+--
+-- Row level security can hide rows but not columns, so "busy" access is served
+-- by this view: it is the only object the client selects events from. Rows the
+-- viewer may only see as busy come back stripped to their times, with a
+-- masked = true flag; everything else is refused outright.
+-- ---------------------------------------------------------------------------
+
+create or replace view cc_calendar_feed
+with (security_invoker = false)
+as
+select
+  e.id,
+  e.calendar_id,
+  c.owner_id,
+  case when acc.level = 'full' then e.title else 'Busy' end        as title,
+  case when acc.level = 'full' then e.notes end                    as notes,
+  case when acc.level = 'full' then e.location end                 as location,
+  e.starts_at,
+  e.ends_at,
+  e.all_day,
+  case when acc.level = 'full' then e.color else 'slate' end       as color,
+  case when acc.level = 'full' then e.created_by else c.owner_id end as created_by,
+  (acc.level = 'busy')                                             as masked
+from cc_events e
+join cc_calendars c on c.id = e.calendar_id
+cross join lateral (select cc_event_access(e.id, auth.uid()) as level) acc
+where acc.level in ('full', 'busy');
+
+grant select on cc_calendar_feed to authenticated;
+
+-- Guests are only ever listed for events the viewer can see in full.
+create or replace view cc_event_guests
+with (security_invoker = false)
+as
+select s.event_id, s.user_id, s.shared_by
+from cc_event_shares s
+where cc_event_access(s.event_id, auth.uid()) = 'full';
+
+grant select on cc_event_guests to authenticated;

@@ -3,7 +3,8 @@
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import type { Calendar, ColorKey } from "@/lib/types";
+import type { Calendar, ColorKey, Privacy } from "@/lib/types";
+import { PrivacyPicker } from "./PrivacyPicker";
 import { Button, ColorPicker, Field, Modal, inputClass } from "./ui";
 
 export function CalendarDialog({
@@ -21,14 +22,16 @@ export function CalendarDialog({
   const [groupId, setGroupId] = useState<string>(
     calendar?.groupId ?? defaultGroupId ?? "",
   );
+  const [privacy, setPrivacy] = useState<Privacy>(calendar?.privacy ?? "busy");
 
   const save = () => {
     if (calendar) {
       store.renameCalendar(calendar.id, name);
       store.setCalendarColor(calendar.id, color);
       store.updateCalendarGroup(calendar.id, groupId || undefined);
+      store.setCalendarPrivacy(calendar.id, privacy);
     } else {
-      store.createCalendar({ name, color, groupId: groupId || undefined });
+      store.createCalendar({ name, color, groupId: groupId || undefined, privacy });
     }
     onClose();
   };
@@ -92,6 +95,14 @@ export function CalendarDialog({
           <p className="mt-1.5 text-[12px] text-ink-faint">
             Everyone in the group sees and edits this calendar.
           </p>
+        </Field>
+
+        <Field label="Everyone else in my groups">
+          <PrivacyPicker
+            value={privacy}
+            onChange={(next) => setPrivacy(next ?? "busy")}
+            subject="this calendar"
+          />
         </Field>
       </div>
     </Modal>

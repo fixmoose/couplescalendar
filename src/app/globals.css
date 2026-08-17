@@ -138,6 +138,21 @@ button {
   box-shadow: inset 3px 0 0 var(--c);
 }
 
+/*
+ * Someone else's private time. Deliberately colourless and hatched so a busy
+ * block never reads as one of your own events.
+ */
+.cc-busy {
+  background-color: color-mix(in oklab, var(--text-faint) 12%, var(--surface));
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    color-mix(in oklab, var(--text-faint) 22%, transparent) 5px 6px
+  );
+  color: var(--text-muted);
+  border-color: color-mix(in oklab, var(--text-faint) 26%, var(--surface));
+}
+
 @keyframes cc-pop {
   from {
     opacity: 0;

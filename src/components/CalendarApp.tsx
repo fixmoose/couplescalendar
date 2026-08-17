@@ -13,6 +13,10 @@ import {
   CalendarDays,
   CalendarPlus,
   Copy,
+  CopyPlus,
+  Eye,
+  EyeOff,
+  Lock,
   Palette,
   Pencil,
   Share2,
@@ -34,11 +38,12 @@ import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
 import { TimeGridView } from "./TimeGridView";
 import { TopBar } from "./TopBar";
+import { PreviewBanner } from "./ViewAsMenu";
 import { Avatar } from "./ui";
 import type { ViewHandlers } from "./view-types";
 
 type Dialog =
-  | { kind: "event"; draft: EventDraft }
+  | { kind: "event"; draft: EventDraft; event?: CalendarEvent }
   | { kind: "calendar"; calendar?: Calendar; groupId?: string }
   | { kind: "group"; group?: Group }
   | null;
@@ -78,8 +83,9 @@ export function CalendarApp() {
   }, [store.visibleEvents, query]);
 
   const defaultCalendarId =
-    store.calendars.find((c) => c.visible && c.kind === "personal")?.id ??
-    store.calendars[0]?.id ??
+    store.myCalendars.find((c) => c.visible)?.id ??
+    store.myCalendars[0]?.id ??
+    store.sharedCalendars[0]?.id ??
     "";
 
   const openEventDialog = useCallback(
@@ -101,9 +107,11 @@ export function CalendarApp() {
   );
 
   const editEvent = useCallback((event: CalendarEvent) => {
+    if (event.masked) return; // nothing to open — we hold no details
     setSelectedId(event.id);
     setDialog({
       kind: "event",
+      event,
       draft: {
         id: event.id,
         calendarId: event.calendarId,
@@ -114,6 +122,7 @@ export function CalendarApp() {
         end: new Date(event.end),
         allDay: event.allDay,
         sharedWith: event.sharedWith,
+        privacy: event.privacy,
       },
     });
   }, []);
@@ -129,15 +138,60 @@ export function CalendarApp() {
     return [...ids].map((id) => store.personById(id)).filter((p) => p !== undefined);
   }, [store]);
 
+  /** Take a copy of someone else's event onto my own calendar. */
+  const copyToMyCalendar = useCallback(
+    (event: CalendarEvent) => {
+      const target = store.myCalendars.find((c) => c.visible) ?? store.myCalendars[0];
+      if (!target) return;
+      store.createEvent({
+        calendarId: target.id,
+        title: event.title,
+        notes: event.notes ?? "",
+        location: event.location ?? "",
+        start: new Date(event.start),
+        end: new Date(event.end),
+        allDay: event.allDay,
+        sharedWith: [],
+      });
+    },
+    [store],
+  );
+
   const eventMenu = useCallback(
     (e: React.MouseEvent, event: CalendarEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setSelectedId(event.id);
 
+      // A busy block carries no details, so there is nothing to act on.
+      if (event.masked) {
+        const owner = store.personById(event.createdBy);
+        setMenu({
+          x: e.clientX,
+          y: e.clientY,
+          items: [
+            { kind: "heading", label: `${owner?.name ?? "Someone"} is busy` },
+            {
+              label: "Details are private",
+              icon: <EyeOff size={13} />,
+              disabled: true,
+              onSelect: () => {},
+            },
+            { kind: "separator" },
+            {
+              label: "Hide their busy times",
+              icon: <EyeOff size={13} />,
+              onSelect: () => store.togglePersonBusy(event.createdBy),
+            },
+          ],
+        });
+        return;
+      }
+
+      const editable = store.canEditEvent(event);
       const items: MenuItem[] = [
         {
-          label: "Open",
+          label: editable ? "Open" : "Open (read only)",
           icon: <SquarePen size={13} />,
           onSelect: () => editEvent(event),
         },
@@ -146,6 +200,15 @@ export function CalendarApp() {
           icon: <Copy size={13} />,
           onSelect: () => store.duplicateEvent(event.id),
         },
+        ...(editable
+          ? []
+          : [
+              {
+                label: "Copy to my calendar",
+                icon: <CopyPlus size={13} />,
+                onSelect: () => copyToMyCalendar(event),
+              } as MenuItem,
+            ]),
         { kind: "separator" },
         { kind: "heading", label: "Share" },
         {
@@ -157,6 +220,7 @@ export function CalendarApp() {
               ? contacts.map((person) => ({
                   label: person.name,
                   checked: event.sharedWith.includes(person.id),
+                  disabled: !editable,
                   icon: <Avatar person={person} size={16} />,
                   onSelect: () => store.toggleEventShare(event.id, person.id),
                 }))
@@ -170,11 +234,47 @@ export function CalendarApp() {
         },
         {
           kind: "submenu",
+          label: "Who else can see it",
+          icon: <Eye size={13} />,
+          items: [
+            {
+              label: "Calendar default",
+              checked: !event.privacy,
+              disabled: !editable,
+              onSelect: () => store.setEventPrivacy(event.id, undefined),
+            },
+            { kind: "separator" },
+            {
+              label: "Show details",
+              icon: <Eye size={13} />,
+              checked: event.privacy === "details",
+              disabled: !editable,
+              onSelect: () => store.setEventPrivacy(event.id, "details"),
+            },
+            {
+              label: "Busy only",
+              icon: <EyeOff size={13} />,
+              checked: event.privacy === "busy",
+              disabled: !editable,
+              onSelect: () => store.setEventPrivacy(event.id, "busy"),
+            },
+            {
+              label: "Hidden",
+              icon: <Lock size={13} />,
+              checked: event.privacy === "hidden",
+              disabled: !editable,
+              onSelect: () => store.setEventPrivacy(event.id, "hidden"),
+            },
+          ],
+        },
+        {
+          kind: "submenu",
           label: "Move to calendar",
           icon: <CalendarDays size={13} />,
-          items: store.calendars.map((c) => ({
+          items: [...store.myCalendars, ...store.sharedCalendars].map((c) => ({
             label: c.name,
             checked: c.id === event.calendarId,
+            disabled: !editable,
             icon: (
               <span style={colorVar(c.color)} className="cc-dot h-2.5 w-2.5 rounded-full" />
             ),
@@ -195,6 +295,7 @@ export function CalendarApp() {
             ...COLOR_KEYS.map((key) => ({
               label: COLORS[key].label,
               checked: event.color === key,
+              disabled: !editable,
               icon: (
                 <span style={colorVar(key)} className="cc-dot h-2.5 w-2.5 rounded-full" />
               ),
@@ -207,13 +308,14 @@ export function CalendarApp() {
           label: "Delete",
           icon: <Trash2 size={13} />,
           danger: true,
+          disabled: !editable,
           onSelect: () => store.deleteEvent(event.id),
         },
       ];
 
       setMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [contacts, editEvent, store],
+    [contacts, copyToMyCalendar, editEvent, store],
   );
 
   const slotMenu = useCallback(
@@ -350,6 +452,7 @@ export function CalendarApp() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
+        <PreviewBanner />
         <TopBar
           date={date}
           view={view}
@@ -378,7 +481,11 @@ export function CalendarApp() {
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
 
       {dialog?.kind === "event" && (
-        <EventDialog draft={dialog.draft} onClose={() => setDialog(null)} />
+        <EventDialog
+          draft={dialog.draft}
+          event={dialog.event}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog?.kind === "calendar" && (
         <CalendarDialog

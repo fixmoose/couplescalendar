@@ -15,7 +15,13 @@ import {
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
 import { EventPill, useEventColor } from "./EventPill";
+import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
+import { Avatar } from "./ui";
 import type { ViewHandlers } from "./view-types";
+
+/** Width of the "someone else is busy" lane, as a fraction of a day column. */
+const BUSY_LANE = 0.24;
+const BUSY_LANE_START = 1 - BUSY_LANE;
 
 const HOUR_H = 48;
 const DAY_H = HOUR_H * 24;
@@ -40,6 +46,7 @@ function Block({
   style,
   selected,
   compact,
+  editable,
   onOpen,
   onMenu,
   onMove,
@@ -49,42 +56,102 @@ function Block({
   style: React.CSSProperties;
   selected: boolean;
   compact: boolean;
+  editable: boolean;
   onOpen: (e: React.MouseEvent) => void;
   onMenu: (e: React.MouseEvent) => void;
   onMove: (e: React.PointerEvent) => void;
   onResize: (e: React.PointerEvent) => void;
 }) {
   const color = useEventColor(event);
+  const { provenance, others, label } = useEventPeople(event);
   const start = new Date(event.start);
   const end = new Date(event.end);
+  const masked = Boolean(event.masked);
 
   return (
     <div
       style={{ ...style, ...colorVar(color) }}
-      onPointerDown={onMove}
+      onPointerDown={editable ? onMove : undefined}
       onClick={onOpen}
       onContextMenu={onMenu}
+      title={masked ? label : `${event.title} — ${label}`}
       className={clsx(
-        "cc-tint cc-rail group absolute overflow-hidden rounded-[7px] border px-2 py-1 text-[12px] transition select-none",
-        "cc-tint-border hover:z-20 hover:shadow-[var(--shadow-sm)]",
+        "group absolute overflow-hidden rounded-[7px] border px-2 py-1 text-[12px] transition select-none",
+        masked
+          ? "cc-busy border-dashed"
+          : "cc-tint cc-tint-border cc-rail hover:z-20 hover:shadow-[var(--shadow-sm)]",
         selected && "z-20 ring-2 ring-[var(--c)]",
       )}
     >
-      <div className={clsx("truncate font-semibold", compact && "text-[11px] leading-tight")}>
-        {event.title}
+      <div className="flex items-center gap-1.5">
+        <div
+          className={clsx(
+            "min-w-0 flex-1 truncate font-semibold",
+            compact && "text-[11px] leading-tight",
+            masked && "italic",
+          )}
+        >
+          {event.title}
+        </div>
+        {provenance !== "private" && (
+          <ProvenanceIcon provenance={provenance} className="opacity-70" />
+        )}
       </div>
+
       {!compact && (
         <div className="truncate text-[11px] opacity-80 tabular-nums">
           {timeLabel(start)} – {timeLabel(end)}
           {event.location ? ` · ${event.location}` : ""}
         </div>
       )}
-      <div
-        onPointerDown={onResize}
-        className="absolute inset-x-0 -bottom-px h-2 cursor-ns-resize opacity-0 group-hover:opacity-100"
-      >
-        <div className="mx-auto mt-1 h-[3px] w-6 rounded-full bg-[var(--c)]" />
-      </div>
+
+      {!compact && others.length > 0 && (
+        <PeopleStack people={others} size={16} max={4} className="mt-1" />
+      )}
+
+      {editable && (
+        <div
+          onPointerDown={onResize}
+          className="absolute inset-x-0 -bottom-px h-2 cursor-ns-resize opacity-0 group-hover:opacity-100"
+        >
+          <div className="mx-auto mt-1 h-[3px] w-6 rounded-full bg-[var(--c)]" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Someone else's time: no title, no interaction beyond "hide their busy times". */
+function BusyBlock({
+  event,
+  style,
+  height,
+  narrow,
+  onMenu,
+}: {
+  event: CalendarEvent;
+  style: React.CSSProperties;
+  /** Rendered height in px — short blocks show the hatch alone. */
+  height: number;
+  narrow: boolean;
+  onMenu: (e: React.MouseEvent) => void;
+}) {
+  const { others, label } = useEventPeople(event);
+  const person = others[0];
+
+  return (
+    <div
+      style={style}
+      title={label}
+      onContextMenu={onMenu}
+      className="cc-busy absolute z-0 flex flex-col items-center justify-center gap-1 overflow-hidden rounded-[6px] border border-dashed px-1 py-0.5 text-[11px] select-none"
+    >
+      {person && height >= 26 && <Avatar person={person} size={16} />}
+      {!narrow && height >= 44 && (
+        <span className="truncate font-medium italic">
+          {person ? `${person.name} is busy` : "Busy"}
+        </span>
+      )}
     </div>
   );
 }
@@ -98,7 +165,7 @@ export function TimeGridView({
   events: CalendarEvent[];
   handlers: ViewHandlers;
 }) {
-  const { rescheduleEvent } = useStore();
+  const { rescheduleEvent, canEditEvent } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const justDragged = useRef(false);
@@ -120,10 +187,20 @@ export function TimeGridView({
     () => layoutWeek(events.filter(isBanner), days),
     [events, days],
   );
-  const columns = useMemo(
-    () => days.map((day) => layoutDay(events, day)),
-    [days, events],
-  );
+  /**
+   * Other people's busy blocks live in their own lane down the right of the
+   * column. Mixing them into the same overlap layout would shrink your real
+   * events every time someone else is booked, which makes your own day harder
+   * to read for information you cannot act on anyway.
+   */
+  const columns = useMemo(() => {
+    const mine = events.filter((e) => !e.masked);
+    const theirs = events.filter((e) => e.masked);
+    return days.map((day) => ({
+      mine: layoutDay(mine, day),
+      theirs: layoutDay(theirs, day),
+    }));
+  }, [days, events]);
 
   const pointToTime = (clientX: number, clientY: number) => {
     const rect = gridRef.current!.getBoundingClientRect();
@@ -207,6 +284,10 @@ export function TimeGridView({
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+
+  /** How much of a column your own events may use on a given day. */
+  const lane = (dayIndex: number) =>
+    columns[dayIndex].theirs.length > 0 ? BUSY_LANE_START : 1;
 
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const nowMinutes = minutesFromMidnight(now);
@@ -301,6 +382,7 @@ export function TimeGridView({
                   selected={handlers.selectedId === seg.event.id}
                   onOpen={(e) => {
                     e.stopPropagation();
+                    if (seg.event.masked) return;
                     handlers.onOpenEvent(seg.event);
                   }}
                   onMenu={(e) => handlers.onEventMenu(e, seg.event)}
@@ -384,22 +466,39 @@ export function TimeGridView({
                   </div>
                 ))}
 
-                {columns[dayIndex].map((p) => (
+                {columns[dayIndex].theirs.map((p) => (
+                  <BusyBlock
+                    key={p.event.id}
+                    event={p.event}
+                    narrow={!single}
+                    height={Math.max(16, p.height * DAY_H - 2)}
+                    onMenu={(e) => handlers.onEventMenu(e, p.event)}
+                    style={{
+                      top: p.top * DAY_H,
+                      height: Math.max(16, p.height * DAY_H - 2),
+                      left: `calc(${(BUSY_LANE_START + p.left * BUSY_LANE) * 100}% + 2px)`,
+                      width: `calc(${p.width * BUSY_LANE * 100}% - 4px)`,
+                    }}
+                  />
+                ))}
+
+                {columns[dayIndex].mine.map((p) => (
                   <Block
                     key={p.event.id}
                     event={p.event}
                     selected={handlers.selectedId === p.event.id}
                     compact={p.height * DAY_H < 44}
+                    editable={canEditEvent(p.event)}
                     style={{
                       top: p.top * DAY_H,
                       height: Math.max(18, p.height * DAY_H - 2),
-                      left: `calc(${p.left * 100}% + 3px)`,
-                      width: `calc(${p.width * 100}% - 6px)`,
+                      left: `calc(${p.left * lane(dayIndex) * 100}% + 3px)`,
+                      width: `calc(${p.width * lane(dayIndex) * 100}% - 6px)`,
                       opacity: drag && "event" in drag && drag.event.id === p.event.id ? 0.35 : 1,
                     }}
                     onOpen={(e) => {
                       e.stopPropagation();
-                      if (justDragged.current) return;
+                      if (justDragged.current || p.event.masked) return;
                       handlers.onOpenEvent(p.event);
                     }}
                     onMenu={(e) => handlers.onEventMenu(e, p.event)}

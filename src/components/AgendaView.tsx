@@ -9,7 +9,7 @@ import { occursOn, rangeLabel } from "@/lib/date";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
 import { useEventColor } from "./EventPill";
-import { Avatar } from "./ui";
+import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import type { ViewHandlers } from "./view-types";
 
 const HORIZON_DAYS = 60;
@@ -21,14 +21,16 @@ function Row({
   event: CalendarEvent;
   handlers: ViewHandlers;
 }) {
-  const { calendarById, personById } = useStore();
+  const { calendarById } = useStore();
   const color = useEventColor(event);
   const calendar = calendarById(event.calendarId);
+  const { provenance, others, label } = useEventPeople(event);
 
   return (
     <button
       type="button"
-      onClick={() => handlers.onOpenEvent(event)}
+      onClick={() => !event.masked && handlers.onOpenEvent(event)}
+      title={event.masked ? label : `${event.title} — ${label}`}
       onContextMenu={(e) => handlers.onEventMenu(e, event)}
       style={colorVar(color)}
       className={clsx(
@@ -36,13 +38,25 @@ function Row({
         handlers.selectedId === event.id && "bg-surface-2",
       )}
     >
-      <span className="cc-dot h-2.5 w-2.5 shrink-0 rounded-full" />
+      {event.masked ? (
+        <span className="cc-busy h-2.5 w-2.5 shrink-0 rounded-full border" />
+      ) : (
+        <span className="cc-dot h-2.5 w-2.5 shrink-0 rounded-full" />
+      )}
       <span className="w-[132px] shrink-0 text-[13px] text-ink-muted tabular-nums">
         {rangeLabel(event)}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">
+      <span
+        className={clsx(
+          "min-w-0 flex-1 truncate text-[14px] font-medium",
+          event.masked ? "text-ink-muted italic" : "text-ink",
+        )}
+      >
         {event.title}
       </span>
+      {provenance !== "private" && (
+        <ProvenanceIcon provenance={provenance} size={13} className="text-ink-faint" />
+      )}
       {event.location && (
         <span className="hidden items-center gap-1 text-[12px] text-ink-faint sm:flex">
           <MapPin size={12} /> {event.location}
@@ -51,18 +65,8 @@ function Row({
       <span className="hidden w-28 shrink-0 truncate text-right text-[12px] text-ink-faint md:block">
         {calendar?.name}
       </span>
-      <span className="flex w-16 shrink-0 justify-end -space-x-1.5">
-        {event.sharedWith.map((id) => {
-          const person = personById(id);
-          return person ? (
-            <Avatar
-              key={id}
-              person={person}
-              size={20}
-              className="ring-2 ring-[var(--surface)]"
-            />
-          ) : null;
-        })}
+      <span className="flex w-20 shrink-0 justify-end">
+        <PeopleStack people={others} size={20} max={3} />
       </span>
     </button>
   );

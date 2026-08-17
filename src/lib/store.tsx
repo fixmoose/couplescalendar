@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { accessFor, canEdit, maskEvent, participantIds } from "./access";
 import { ME, SEED_CALENDARS, SEED_GROUPS, SEED_PEOPLE, seedEvents } from "./seed";
 import type {
   Calendar,
@@ -17,6 +18,7 @@ import type {
   EventDraft,
   Group,
   Person,
+  Privacy,
 } from "./types";
 
 /**
@@ -28,7 +30,7 @@ import type {
  * whole of the migration.
  */
 
-const STORAGE_KEY = "cc.state.v1";
+const STORAGE_KEY = "cc.state.v2"; // v2: privacy, busyHidden, viewerId
 
 /** Avatar colours handed out to newly invited people, in order. */
 const COLOR_CYCLE: ColorKey[] = ["violet", "teal", "blue", "amber", "green", "rose"];
@@ -38,16 +40,40 @@ interface Data {
   groups: Group[];
   calendars: Calendar[];
   events: CalendarEvent[];
+  /** Whose busy blocks the viewer has switched off in the sidebar. */
+  busyHidden: string[];
+  /**
+   * Phase 1 has no auth, so "who am I" is state. The Preview-as control in the
+   * top bar flips it, which is how you check what your group actually sees.
+   */
+  viewerId: string;
 }
 
 interface StoreValue extends Data {
   currentUserId: string;
   me: Person;
   ready: boolean;
+  /** True while looking at the calendar through someone else's eyes. */
+  previewing: boolean;
+  viewAs: (personId: string) => void;
   calendarById: (id: string) => Calendar | undefined;
   personById: (id: string) => Person | undefined;
-  /** Events on calendars the sidebar currently shows. */
+  /** The viewer's own calendars, then the group ones they belong to. */
+  myCalendars: Calendar[];
+  sharedCalendars: Calendar[];
+  /** Everyone the viewer shares at least one group with. */
+  contacts: Person[];
+  togglePersonBusy: (personId: string) => void;
+  /**
+   * What the viewer is allowed to see, already filtered and — where they only
+   * have busy access — stripped of every detail. Views never see more.
+   */
   visibleEvents: CalendarEvent[];
+  /** Everyone who can see this event in full. */
+  participantsOf: (event: CalendarEvent) => Person[];
+  canEditEvent: (event: CalendarEvent) => boolean;
+  setCalendarPrivacy: (id: string, privacy: Privacy) => void;
+  setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
   createEvent: (draft: EventDraft) => CalendarEvent;
   updateEvent: (draft: EventDraft & { id: string }) => void;
   /** Drag / resize helper — keeps everything else on the event intact. */
@@ -64,6 +90,7 @@ interface StoreValue extends Data {
     name: string;
     color: ColorKey;
     groupId?: string;
+    privacy?: Privacy;
   }) => Calendar;
   renameCalendar: (id: string, name: string) => void;
   setCalendarColor: (id: string, color: ColorKey) => void;
@@ -87,6 +114,8 @@ function freshData(): Data {
     groups: SEED_GROUPS,
     calendars: SEED_CALENDARS,
     events: seedEvents(new Date()),
+    busyHidden: [],
+    viewerId: ME,
   };
 }
 
@@ -94,7 +123,11 @@ function newId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function draftToEvent(draft: EventDraft, base: Partial<CalendarEvent> = {}): CalendarEvent {
+function draftToEvent(
+  draft: EventDraft,
+  createdBy: string,
+  base: Partial<CalendarEvent> = {},
+): CalendarEvent {
   return {
     id: draft.id ?? newId("e"),
     calendarId: draft.calendarId,
@@ -104,8 +137,9 @@ function draftToEvent(draft: EventDraft, base: Partial<CalendarEvent> = {}): Cal
     start: draft.start.toISOString(),
     end: draft.end.toISOString(),
     allDay: draft.allDay,
-    createdBy: ME,
+    createdBy,
     sharedWith: draft.sharedWith,
+    privacy: draft.privacy,
     ...base,
   };
 }
@@ -154,24 +188,110 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<StoreValue>(() => {
-    const d = data ?? { people: [], groups: [], calendars: [], events: [] };
+    const d = data ?? {
+      people: [],
+      groups: [],
+      calendars: [],
+      events: [],
+      busyHidden: [],
+      viewerId: ME,
+    };
+    const viewerId = d.viewerId;
 
     const calendarById = (id: string) => d.calendars.find((c) => c.id === id);
     const personById = (id: string) => d.people.find((p) => p.id === id);
 
-    const visibleIds = new Set(d.calendars.filter((c) => c.visible).map((c) => c.id));
+    const myCalendars = d.calendars.filter(
+      (c) => c.kind === "personal" && c.ownerId === viewerId,
+    );
+    const sharedCalendars = d.calendars.filter(
+      (c) =>
+        c.kind === "shared" &&
+        (c.ownerId === viewerId ||
+          d.groups.some((g) => g.id === c.groupId && g.memberIds.includes(viewerId))),
+    );
+    const mine = new Set([...myCalendars, ...sharedCalendars].map((c) => c.id));
+    const busyHidden = new Set(d.busyHidden);
+
+    const contacts = d.people.filter(
+      (p) =>
+        p.id !== viewerId &&
+        d.groups.some(
+          (g) => g.memberIds.includes(viewerId) && g.memberIds.includes(p.id),
+        ),
+    );
+
+    // One pass decides, per event, whether the viewer gets the whole thing, a
+    // grey block, or nothing at all.
+    const visibleEvents: CalendarEvent[] = [];
+    for (const event of d.events) {
+      const calendar = calendarById(event.calendarId);
+      const access = accessFor(event, calendar, viewerId, d.groups);
+      if (access === "none" || !calendar) continue;
+
+      if (access === "busy") {
+        if (busyHidden.has(calendar.ownerId)) continue;
+        visibleEvents.push(maskEvent(event, calendar.ownerId));
+        continue;
+      }
+      // Own and group calendars obey the sidebar checkboxes. Other people's
+      // calendars obey their People toggle — except an event shared with me
+      // personally, which always comes through.
+      if (mine.has(calendar.id)) {
+        if (!calendar.visible) continue;
+      } else if (
+        busyHidden.has(calendar.ownerId) &&
+        !event.sharedWith.includes(viewerId)
+      ) {
+        continue;
+      }
+      visibleEvents.push(event);
+    }
 
     return {
       ...d,
-      currentUserId: ME,
-      me: d.people.find((p) => p.id === ME) ?? SEED_PEOPLE[0],
+      currentUserId: viewerId,
+      me: d.people.find((p) => p.id === viewerId) ?? SEED_PEOPLE[0],
+      previewing: viewerId !== ME,
       ready: data !== null,
       calendarById,
       personById,
-      visibleEvents: d.events.filter((e) => visibleIds.has(e.calendarId)),
+      myCalendars,
+      sharedCalendars,
+      contacts,
+      visibleEvents,
+
+      participantsOf: (event) => {
+        const ids = participantIds(event, calendarById(event.calendarId), d.groups);
+        return ids
+          .map((id) => d.people.find((p) => p.id === id))
+          .filter((p) => p !== undefined);
+      },
+
+      canEditEvent: (event) =>
+        canEdit(calendarById(event.calendarId), viewerId, d.groups),
+
+      viewAs: (personId) => patch((s) => ({ ...s, viewerId: personId })),
+
+      togglePersonBusy: (personId) =>
+        patch((s) => ({
+          ...s,
+          busyHidden: s.busyHidden.includes(personId)
+            ? s.busyHidden.filter((id) => id !== personId)
+            : [...s.busyHidden, personId],
+        })),
+
+      setCalendarPrivacy: (id, privacy) =>
+        patch((s) => ({
+          ...s,
+          calendars: s.calendars.map((c) => (c.id === id ? { ...c, privacy } : c)),
+        })),
+
+      setEventPrivacy: (eventId, privacy) =>
+        mapEvents((e) => (e.id === eventId ? { ...e, privacy } : e)),
 
       createEvent: (draft) => {
-        const event = draftToEvent(draft);
+        const event = draftToEvent(draft, viewerId);
         patch((s) => ({ ...s, events: [...s.events, event] }));
         return event;
       },
@@ -179,7 +299,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateEvent: (draft) =>
         mapEvents((e) =>
           e.id === draft.id
-            ? draftToEvent(draft, { createdBy: e.createdBy, color: e.color })
+            ? draftToEvent(draft, e.createdBy, { color: e.color })
             : e,
         ),
 
@@ -249,15 +369,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           calendars: s.calendars.map((c) => ({ ...c, visible })),
         })),
 
-      createCalendar: ({ name, color, groupId }) => {
+      createCalendar: ({ name, color, groupId, privacy }) => {
         const calendar: Calendar = {
           id: newId("c"),
           name: name.trim() || "Untitled calendar",
           kind: groupId ? "shared" : "personal",
           color,
-          ownerId: ME,
+          ownerId: viewerId,
           groupId,
           visible: true,
+          privacy: privacy ?? (groupId ? "details" : "busy"),
         };
         patch((s) => ({ ...s, calendars: [...s.calendars, calendar] }));
         return calendar;
@@ -313,8 +434,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const group: Group = {
           id: newId("g"),
           name: name.trim() || "New group",
-          ownerId: ME,
-          memberIds: Array.from(new Set([ME, ...memberIds])),
+          ownerId: viewerId,
+          memberIds: Array.from(new Set([viewerId, ...memberIds])),
         };
         patch((s) => ({ ...s, groups: [...s.groups, group] }));
         return group;
@@ -325,7 +446,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...s,
           groups: s.groups.map((g) =>
             g.id === groupId
-              ? { ...g, memberIds: Array.from(new Set([ME, ...memberIds])) }
+              ? { ...g, memberIds: Array.from(new Set([viewerId, ...memberIds])) }
               : g,
           ),
         })),

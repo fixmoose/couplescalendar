@@ -4,6 +4,8 @@ import clsx from "clsx";
 import {
   Check,
   Eye,
+  EyeOff,
+  Lock,
   Palette,
   Pencil,
   Plus,
@@ -62,6 +64,19 @@ function CalendarRow({
       >
         {calendar.name}
       </button>
+
+      {calendar.privacy !== "busy" && (
+        <span
+          className="shrink-0 text-ink-faint"
+          title={
+            calendar.privacy === "details"
+              ? "Your groups see the details on this calendar"
+              : "Hidden from everyone else"
+          }
+        >
+          {calendar.privacy === "details" ? <Eye size={12} /> : <Lock size={12} />}
+        </span>
+      )}
 
       {group && (
         <div className="flex -space-x-1.5 pr-0.5">
@@ -147,8 +162,8 @@ export function Sidebar({
   openMenu: (state: MenuState) => void;
 }) {
   const store = useStore();
-  const personal = store.calendars.filter((c) => c.kind === "personal");
-  const shared = store.calendars.filter((c) => c.kind === "shared");
+  const personal = store.myCalendars;
+  const shared = store.sharedCalendars;
 
   const calendarMenu = (e: React.MouseEvent, calendar: Calendar) => {
     e.preventDefault();
@@ -163,6 +178,31 @@ export function Sidebar({
         label: "Show only this",
         icon: <Eye size={13} />,
         onSelect: () => store.showOnlyCalendar(calendar.id),
+      },
+      {
+        kind: "submenu",
+        label: "Who else can see it",
+        icon: <Eye size={13} />,
+        items: [
+          {
+            label: "Show details",
+            icon: <Eye size={13} />,
+            checked: calendar.privacy === "details",
+            onSelect: () => store.setCalendarPrivacy(calendar.id, "details"),
+          },
+          {
+            label: "Busy only",
+            icon: <EyeOff size={13} />,
+            checked: calendar.privacy === "busy",
+            onSelect: () => store.setCalendarPrivacy(calendar.id, "busy"),
+          },
+          {
+            label: "Hidden",
+            icon: <Lock size={13} />,
+            checked: calendar.privacy === "hidden",
+            onSelect: () => store.setCalendarPrivacy(calendar.id, "hidden"),
+          },
+        ],
       },
       {
         kind: "submenu",
@@ -245,6 +285,44 @@ export function Sidebar({
         {shared.map((c) => (
           <CalendarRow key={c.id} calendar={c} onMenu={calendarMenu} />
         ))}
+
+        <SectionTitle>People</SectionTitle>
+        {store.contacts.length === 0 && (
+          <p className="px-2 py-1 text-[12px] text-ink-faint">
+            Add people to a group to see when they are free.
+          </p>
+        )}
+        {store.contacts.map((person) => {
+          const on = !store.busyHidden.includes(person.id);
+          return (
+            <button
+              key={person.id}
+              type="button"
+              onClick={() => store.togglePersonBusy(person.id)}
+              title={`${on ? "Hide" : "Show"} ${person.name}'s busy times`}
+              className="flex w-full items-center gap-2.5 rounded-lg py-[5px] pr-2 pl-2 text-left transition hover:bg-surface-2"
+            >
+              <Avatar
+                person={person}
+                size={18}
+                className={clsx("transition", !on && "opacity-40 grayscale")}
+              />
+              <span
+                className={clsx(
+                  "min-w-0 flex-1 truncate text-[13px]",
+                  on ? "text-ink" : "text-ink-faint",
+                )}
+              >
+                {person.name}
+              </span>
+              {on ? (
+                <Eye size={13} className="shrink-0 text-ink-faint" />
+              ) : (
+                <EyeOff size={13} className="shrink-0 text-ink-faint" />
+              )}
+            </button>
+          );
+        })}
 
         <SectionTitle action={<AddButton label="New group" onClick={onNewGroup} />}>
           My groups

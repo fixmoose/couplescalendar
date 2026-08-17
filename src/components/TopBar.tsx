@@ -2,10 +2,10 @@
 
 import { ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
-import { useStore } from "@/lib/store";
 import { useTheme } from "@/lib/theme";
 import type { CalendarView } from "@/lib/types";
-import { Avatar, Button, IconButton, Segmented, inputClass } from "./ui";
+import { ViewAsMenu } from "./ViewAsMenu";
+import { Button, IconButton, Segmented, inputClass } from "./ui";
 
 export function TopBar({
   date,
@@ -26,7 +26,6 @@ export function TopBar({
   onToday: () => void;
   onView: (view: CalendarView) => void;
 }) {
-  const { me } = useStore();
   const { theme, toggle } = useTheme();
 
   return (
@@ -77,7 +76,7 @@ export function TopBar({
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </IconButton>
 
-        <Avatar person={me} size={28} />
+        <ViewAsMenu />
       </div>
     </header>
   );

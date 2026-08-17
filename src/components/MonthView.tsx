@@ -29,7 +29,7 @@ export function MonthView({
   events: CalendarEvent[];
   handlers: ViewHandlers;
 }) {
-  const { rescheduleEvent } = useStore();
+  const { rescheduleEvent, canEditEvent } = useStore();
   const weeks = useMemo(() => monthMatrix(date), [date]);
   const labels = useMemo(
     () => weekDays(new Date()).map((d) => format(d, "EEE")),
@@ -56,7 +56,7 @@ export function MonthView({
 
   /** Pointer-drag an event onto another day. */
   const startDrag = (e: React.PointerEvent, event: CalendarEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !canEditEvent(event)) return;
     const originX = e.clientX;
     const originY = e.clientY;
     let moved = false;
@@ -208,7 +208,7 @@ export function MonthView({
                       onDragStart={(e) => startDrag(e, seg.event)}
                       onOpen={(e) => {
                         e.stopPropagation();
-                        if (justDragged.current) return;
+                        if (justDragged.current || seg.event.masked) return;
                         handlers.onOpenEvent(seg.event);
                       }}
                       onMenu={(e) => handlers.onEventMenu(e, seg.event)}

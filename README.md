@@ -27,7 +27,10 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 | Views | Day, Week, Month, Agenda — switch with the segmented control or `D` / `W` / `M` / `A` |
 | Create | Click an empty slot, or drag down the time grid to draw a duration |
 | Move | Drag an event to another day (month) or another time/day (week & day); drag the bottom edge to resize |
-| Right-click an event | Open, duplicate, **add to their calendar** (per-person sharing), move to another calendar, recolour, delete |
+| Right-click an event | Open, duplicate, **add to their calendar** (per-person sharing), **who else can see it** (privacy), move to another calendar, recolour, delete |
+| Sharing at a glance | Every event shows who else is on it (avatars) and how it reached you: shared with you ↙, shared out ↗, on a group calendar 👥 |
+| Busy blocks | Other people's private time appears as an anonymous grey block in its own lane, so the group can see you are taken without seeing what you are doing |
+| Preview as | Look at the calendar as any group member and see exactly what they see |
 | Right-click empty space | New event here, new all-day event, jump to that day |
 | Calendars | Personal and group-shared, colour-coded, toggled from the sidebar |
 | Groups | Create a group, pick members, invite by email, optionally spin up a shared calendar with it |
@@ -40,7 +43,7 @@ Keyboard: `T` today · `←` / `→` (or `J` / `K`) previous/next · `N` new eve
 
 ## How sharing is modelled
 
-Three distinct things, deliberately:
+Three ways an event reaches someone, deliberately kept distinct:
 
 1. **Personal calendar** — yours alone.
 2. **Group calendar** — owned by a group (`Us`, `Family`); every member reads and
@@ -49,6 +52,35 @@ Three distinct things, deliberately:
    without sharing the whole calendar. That is the right-click →
    *Add to their calendar* flow, and the *Also on their calendar* row in the
    event editor.
+
+Every event carries that on its face: the avatars of everyone who can see it,
+and an icon for how it got there — ↙ shared with you, ↗ shared out, 👥 on a
+group calendar. Open one and the banner spells it out ("Ana shared this with
+you", "On the Us calendar — Ana can see it"). Events other people own are
+read-only, with a **Copy to my calendar** button.
+
+### Privacy: what the rest of your group sees
+
+The owner decides, per calendar — and per event, if one needs to differ. Set it
+in the calendar settings, the sidebar's ⚙ menu, or right-click → *Who else can
+see it*:
+
+| Setting | Everyone in your groups sees |
+| --- | --- |
+| **Show details** | The event exactly as you see it |
+| **Busy only** (default for personal calendars) | An anonymous grey hatched block — no title, place, notes or guests |
+| **Hidden** | Nothing at all |
+
+Busy blocks sit in a narrow lane down the right of the day column, so other
+people's commitments never squeeze your own events. Masking happens in the
+store, not the view: a masked event is rebuilt with nothing but its times, so
+no detail can leak through a tooltip, a search match or the dialog. Anyone you
+share an event with directly always sees it in full — that is what sharing
+means, and it overrides the privacy setting.
+
+Use **Preview as** (the avatar, top right) to look at your calendar as Ana or
+anyone else and confirm what they get. It exists because phase 1 has no login;
+Supabase auth replaces it.
 
 ## Project layout
 
@@ -70,6 +102,7 @@ src/
     ui.tsx            buttons, modal, colour picker, avatars
   lib/
     types.ts          domain model (mirrors the SQL tables)
+    access.ts         who may see what: full / busy / none, and event masking
     date.ts           week/month maths, lane packing, overlap layout
     colors.ts         palette; colours are mixed in CSS so both themes work
     store.tsx         all reads/writes — the seam Supabase plugs into
@@ -79,11 +112,17 @@ supabase/schema.sql   CC_ tables, RLS policies, triggers (phase 2)
 
 ## Data, and the road to Supabase
 
-Everything lives in `localStorage` under `cc.state.v1`, behind the
+Everything lives in `localStorage` under `cc.state.v2`, behind the
 `useStore()` API in `src/lib/store.tsx`. Every action there
 (`createEvent`, `toggleEventShare`, `createGroup`, …) maps one-to-one onto a
 table in `supabase/schema.sql`, so phase 2 replaces the bodies of those
 functions with Supabase queries and the UI does not change.
+
+The privacy rules exist twice on purpose: `accessFor()` in `src/lib/access.ts`
+for the UI, and `cc_event_access()` plus the `cc_calendar_feed` view in the
+schema for the database. Postgres row level security can hide rows but not
+columns, so busy blocks are served by that view — the client selects events
+from it and never from `cc_events` directly. Keep the two in step.
 
 To reset the demo content, clear the key from devtools or call
 `useStore().resetDemoData()`.

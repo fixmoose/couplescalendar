@@ -48,7 +48,17 @@ export interface Calendar {
   groupId?: string;
   /** Toggled by the sidebar checkboxes — a view concern we persist per user. */
   visible: boolean;
+  /** What people who share a group with the owner get to see. */
+  privacy: Privacy;
 }
+
+/**
+ * The owner's choice, per calendar (and overridable per event):
+ * - "details" — group members see the event exactly as the owner does.
+ * - "busy"    — they see an anonymous grey block: the time is taken, nothing more.
+ * - "hidden"  — they see nothing at all.
+ */
+export type Privacy = "details" | "busy" | "hidden";
 
 export interface CalendarEvent {
   id: string;
@@ -68,6 +78,13 @@ export interface CalendarEvent {
    * someone's calendar" flow). Distinct from sharing a whole calendar.
    */
   sharedWith: string[];
+  /** Overrides the calendar's privacy for this one event. */
+  privacy?: Privacy;
+  /**
+   * Set by the store when the viewer may only see that this time is taken.
+   * Masked events carry no details — see maskEvent() in lib/access.ts.
+   */
+  masked?: boolean;
 }
 
 export type CalendarView = "month" | "week" | "day" | "agenda";
@@ -83,4 +100,6 @@ export interface EventDraft {
   end: Date;
   allDay: boolean;
   sharedWith: string[];
+  /** Per-event override of the calendar's privacy; undefined = inherit. */
+  privacy?: Privacy;
 }

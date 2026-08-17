@@ -2,11 +2,13 @@
 
 import clsx from "clsx";
 import { format } from "date-fns";
-import { Check, Trash2 } from "lucide-react";
+import { Check, CopyPlus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { colorVar } from "@/lib/colors";
 import { useStore } from "@/lib/store";
-import type { EventDraft } from "@/lib/types";
+import type { CalendarEvent, EventDraft } from "@/lib/types";
+import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
+import { PrivacyPicker } from "./PrivacyPicker";
 import { Avatar, Button, Field, Modal, controlClass, inputClass } from "./ui";
 
 const dateValue = (d: Date) => format(d, "yyyy-MM-dd");
@@ -28,14 +30,18 @@ function withTime(base: Date, value: string) {
 
 export function EventDialog({
   draft,
+  event,
   onClose,
 }: {
   draft: EventDraft;
+  /** Present when editing — carries sharing state the draft does not. */
+  event?: CalendarEvent;
   onClose: () => void;
 }) {
   const store = useStore();
   const [form, setForm] = useState<EventDraft>(draft);
   const isEdit = Boolean(draft.id);
+  const editable = event ? store.canEditEvent(event) : true;
 
   const set = <K extends keyof EventDraft>(key: K, value: EventDraft[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -67,6 +73,10 @@ export function EventDialog({
     onClose();
   };
 
+  if (event && !editable) {
+    return <SharedEventView event={event} onClose={onClose} />;
+  }
+
   return (
     <Modal
       title={isEdit ? "Edit event" : "New event"}
@@ -96,6 +106,8 @@ export function EventDialog({
       }
     >
       <div className="space-y-3.5">
+        {event && <ProvenanceBanner event={event} />}
+
         <input
           value={form.title}
           onChange={(e) => set("title", e.target.value)}
@@ -190,6 +202,15 @@ export function EventDialog({
           />
         </Field>
 
+        <Field label="Who else can see it">
+          <PrivacyPicker
+            value={form.privacy}
+            onChange={(privacy) => set("privacy", privacy)}
+            subject="this event"
+            allowInherit
+          />
+        </Field>
+
         <Field label="Also on their calendar">
           <div className="flex flex-wrap gap-1.5">
             {contacts.length === 0 && (
@@ -226,7 +247,108 @@ export function EventDialog({
               );
             })}
           </div>
+          <p className="mt-1.5 text-[12px] text-ink-faint">
+            People you pick here always see the full event, whatever the
+            privacy setting above says.
+          </p>
         </Field>
+      </div>
+    </Modal>
+  );
+}
+
+/** "Ana shared this with you", "Shared with Ana and Marko", and who is on it. */
+function ProvenanceBanner({ event }: { event: CalendarEvent }) {
+  const { provenance, others, label } = useEventPeople(event);
+  if (provenance === "private") return null;
+
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface-2 px-3 py-2">
+      <ProvenanceIcon provenance={provenance} size={15} className="text-brand" />
+      <span className="min-w-0 flex-1 text-[13px] text-ink-muted">{label}</span>
+      <PeopleStack people={others} size={22} max={4} />
+    </div>
+  );
+}
+
+/** Someone else's event, shared with me: readable, not editable, copyable. */
+function SharedEventView({
+  event,
+  onClose,
+}: {
+  event: CalendarEvent;
+  onClose: () => void;
+}) {
+  const store = useStore();
+  const calendar = store.calendarById(event.calendarId);
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+
+  const copyToMine = () => {
+    const target =
+      store.myCalendars.find((c) => c.visible) ?? store.myCalendars[0];
+    if (!target) return;
+    store.createEvent({
+      calendarId: target.id,
+      title: event.title,
+      notes: event.notes ?? "",
+      location: event.location ?? "",
+      start,
+      end,
+      allDay: event.allDay,
+      sharedWith: [],
+    });
+    onClose();
+  };
+
+  return (
+    <Modal
+      title="Shared with you"
+      onClose={onClose}
+      width={460}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+          <Button variant="primary" onClick={copyToMine}>
+            <CopyPlus size={15} /> Copy to my calendar
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3.5">
+        <ProvenanceBanner event={event} />
+
+        <div>
+          <div className="text-[17px] font-semibold text-ink">{event.title}</div>
+          <div className="mt-0.5 text-[13px] text-ink-muted">
+            {event.allDay
+              ? format(start, "EEEE, d MMMM yyyy")
+              : `${format(start, "EEEE, d MMMM")} · ${format(start, "HH:mm")} – ${format(end, "HH:mm")}`}
+          </div>
+        </div>
+
+        {event.location && (
+          <Field label="Location">
+            <p className="text-[13px] text-ink">{event.location}</p>
+          </Field>
+        )}
+        {event.notes && (
+          <Field label="Notes">
+            <p className="text-[13px] whitespace-pre-wrap text-ink">{event.notes}</p>
+          </Field>
+        )}
+        <Field label="Calendar">
+          <p className="text-[13px] text-ink">
+            {calendar?.name}
+            {calendar?.kind === "personal" &&
+              ` · ${store.personById(calendar.ownerId)?.name ?? "someone"}'s calendar`}
+          </p>
+        </Field>
+        <p className="text-[12px] text-ink-faint">
+          Only the owner can change this event. Copy it to keep your own version.
+        </p>
       </div>
     </Modal>
   );
