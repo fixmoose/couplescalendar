@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import {
+  ArrowDownLeft,
   Check,
   Eye,
   EyeOff,
@@ -11,6 +12,7 @@ import {
   Pencil,
   Plus,
   Settings2,
+  Share2,
   Trash2,
   UserPlus,
   Users,
@@ -115,15 +117,14 @@ function MemberAvatar({ id }: { id: string }) {
 
 function PersonRow({
   personId,
-  count,
   onOpen,
 }: {
   personId: string;
-  count: number;
   onOpen: (personId: string) => void;
 }) {
   const store = useStore();
   const person = store.personById(personId);
+  const traffic = store.trafficWith(personId);
   if (!person) return null;
   const busyShown = !store.busyHidden.includes(personId);
 
@@ -142,7 +143,27 @@ function PersonRow({
       >
         {person.name}
       </button>
-      <span className="shrink-0 text-[11px] text-ink-faint tabular-nums">{count}</span>
+      {/* what they sent you, and what you sent them */}
+      <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-faint tabular-nums">
+        {traffic.from > 0 && (
+          <span
+            className="flex items-center gap-0.5"
+            title={`${traffic.from} shared with you by ${person.name}`}
+          >
+            <ArrowDownLeft size={11} />
+            {traffic.from}
+          </span>
+        )}
+        {traffic.to > 0 && (
+          <span
+            className="flex items-center gap-0.5"
+            title={`${traffic.to} you shared with ${person.name}`}
+          >
+            <Share2 size={11} />
+            {traffic.to}
+          </span>
+        )}
+      </span>
       <button
         type="button"
         onClick={() => store.togglePersonBusy(personId)}
@@ -341,37 +362,25 @@ export function Sidebar({
         ))}
 
         <SectionTitle
-          action={<AddButton label="Invite people" onClick={onInvite} />}
+          action={<AddButton label="Invite someone" onClick={onInvite} />}
         >
-          People who share with me
+          People I can share with
         </SectionTitle>
-        {store.sharedWithMe.length === 0 && (
-          <p className="px-2 py-1 text-[12px] text-ink-faint">
-            Nobody has shared anything with you yet.
+        {store.contacts.length === 0 && (
+          <p className="px-2 py-1 text-[12px] leading-relaxed text-ink-faint">
+            Nobody yet. Invite your partner or family with{" "}
+            <button
+              type="button"
+              onClick={onInvite}
+              className="font-medium text-brand hover:underline"
+            >
+              the + above
+            </button>
+            , and they appear here once they accept.
           </p>
         )}
-        {store.sharedWithMe.map(({ person, count }) => (
-          <PersonRow
-            key={person.id}
-            personId={person.id}
-            count={count}
-            onOpen={onOpenPerson}
-          />
-        ))}
-
-        <SectionTitle>People I share with</SectionTitle>
-        {store.iShareWith.length === 0 && (
-          <p className="px-2 py-1 text-[12px] text-ink-faint">
-            Right-click any event to put it on someone else&apos;s calendar.
-          </p>
-        )}
-        {store.iShareWith.map(({ person, count }) => (
-          <PersonRow
-            key={person.id}
-            personId={person.id}
-            count={count}
-            onOpen={onOpenPerson}
-          />
+        {store.contacts.map((person) => (
+          <PersonRow key={person.id} personId={person.id} onOpen={onOpenPerson} />
         ))}
 
         {pendingInvites.length > 0 && (
@@ -397,7 +406,7 @@ export function Sidebar({
         )}
 
         <SectionTitle action={<AddButton label="New group" onClick={onNewGroup} />}>
-          My groups
+          My groups of people
         </SectionTitle>
         {store.groups.map((group) => (
           <button

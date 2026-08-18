@@ -93,6 +93,8 @@ interface StoreValue extends Data {
   canEditEvent: (event: CalendarEvent) => boolean;
   sharedWithMe: { person: Person; count: number }[];
   iShareWith: { person: Person; count: number }[];
+  /** How many items have travelled each way with one person. */
+  trafficWith: (personId: string) => { from: number; to: number };
   itemsWith: (personId: string) => { fromThem: CalendarEvent[]; toThem: CalendarEvent[] };
   createEvent: (draft: EventDraft) => void;
   updateEvent: (draft: EventDraft & { id: string }) => void;
@@ -299,6 +301,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ).length,
         }))
         .filter((row) => row.count > 0),
+
+      trafficWith: (personId) => ({
+        from: d.events.filter((e) => !e.masked && e.createdBy === personId).length,
+        to: d.events.filter(
+          (e) => !e.masked && e.createdBy === userId && reaches(e, personId),
+        ).length,
+      }),
 
       itemsWith: (personId) => ({
         fromThem: d.events.filter((e) => !e.masked && e.createdBy === personId),
@@ -566,7 +575,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       /* ---------------- groups ---------------- */
 
-      createGroup: (name, memberIds, withCalendar = true) =>
+      createGroup: (name, memberIds, withCalendar = false) =>
         write(
           (s) => s,
           async () => {

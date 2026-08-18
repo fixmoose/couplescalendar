@@ -21,7 +21,7 @@ export function GroupDialog({
   );
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState<string[]>([]);
-  const [withCalendar, setWithCalendar] = useState(!group);
+  const [withCalendar, setWithCalendar] = useState(false);
 
   const toggle = (id: string) =>
     setMembers((current) =>
@@ -86,6 +86,11 @@ export function GroupDialog({
       }
     >
       <div className="space-y-4">
+        <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[12px] leading-relaxed text-ink-muted">
+          A group is a set of people you plan with — everyone here can be picked
+          when you share an event. It does not create a calendar on its own.
+        </p>
+
         <Field label="Group name">
           <input
             value={name}
@@ -155,7 +160,7 @@ export function GroupDialog({
               onChange={(e) => setWithCalendar(e.target.checked)}
               className="h-4 w-4 accent-[var(--cc-brand)]"
             />
-            Also create a shared calendar for this group
+            Also create a calendar this group writes to together
           </label>
         )}
 

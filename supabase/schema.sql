@@ -9,8 +9,9 @@
 -- and nothing outside that prefix is touched. The whole file is idempotent:
 -- paste it into the Supabase SQL editor and run it as many times as you like.
 --
--- Not wired to the app yet: phase 1 runs on a local store (src/lib/store.tsx).
--- This file is the target shape, so the switch is a store swap, not a rewrite.
+-- The app runs on this schema: src/lib/db.ts holds every query, and reads of
+-- events go through the cc_calendar_feed view so busy masking happens in the
+-- database rather than the client.
 
 -- ---------------------------------------------------------------------------
 -- Extensions
