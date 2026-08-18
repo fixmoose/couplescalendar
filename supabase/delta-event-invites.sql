@@ -4,6 +4,10 @@
 alter table cc_invitations
   add column if not exists event_id uuid references cc_events (id) on delete cascade;
 
+-- The earlier version returned a table; a return type cannot be changed in
+-- place, so the old signature is dropped first.
+drop function if exists cc_accept_invitation(text);
+
 -- Redeems an invitation: makes sure the invitee exists in this app, joins the
 -- group it was sent for, grants the event it was about, and marks it used.
 -- Security definer, because the invitee can see none of those things yet.
