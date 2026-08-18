@@ -500,11 +500,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         write(
           (s) => s,
           async () => {
-            await db.insertCalendar(
-              supabase,
-              { ...input, privacy: input.privacy ?? (input.groupId ? "details" : "busy") },
-              userId,
-            );
+            await db.insertCalendar(supabase, {
+              ...input,
+              privacy: input.privacy ?? (input.groupId ? "details" : "busy"),
+            });
             await refresh();
           },
         ),
@@ -573,16 +572,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           async () => {
             const groupId = await db.insertGroup(supabase, name, memberIds, userId);
             if (withCalendar) {
-              await db.insertCalendar(
-                supabase,
-                {
-                  name: name.trim() || "Shared",
-                  color: "violet",
-                  groupId,
-                  privacy: "details",
-                },
-                userId,
-              );
+              await db.insertCalendar(supabase, {
+                name: name.trim() || "Shared",
+                color: "violet",
+                groupId,
+                privacy: "details",
+              });
             }
             await refresh();
           },
@@ -646,7 +641,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!rows.length) return [];
 
         try {
-          const created = await db.insertInvites(supabase, rows, userId);
+          const created = await db.insertInvites(supabase, rows);
           setData((s) => (s ? { ...s, invites: [...created, ...s.invites] } : s));
           return created;
         } catch (e) {
@@ -687,23 +682,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
-/** Turns a Postgres/PostgREST error into something a person can act on. */
+/**
+ * Turns a Postgres/PostgREST error into something a person can act on — while
+ * still showing the underlying message, because a friendly summary alone made
+ * a permissions problem impossible to diagnose.
+ */
 function describe(e: unknown) {
-  if (typeof e === "object" && e && "message" in e) {
-    const message = String((e as { message: string }).message);
-    if (
-      message.includes("does not exist") ||
-      message.includes("schema cache") ||
-      message.includes("Could not find the table")
-    ) {
-      return "Database tables are missing — run supabase/schema.sql in the Supabase SQL editor.";
-    }
-    if (message.includes("row-level security")) {
-      return "That change was refused: you do not have access to it.";
-    }
-    return message;
+  if (typeof e !== "object" || !e) return "Something went wrong.";
+
+  const error = e as { message?: string; code?: string; details?: string; hint?: string };
+  const message = String(error.message ?? "");
+  const code = error.code ? ` [${error.code}]` : "";
+  const detail = [error.details, error.hint].filter(Boolean).join(" · ");
+
+  if (
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("Could not find the table")
+  ) {
+    return `Database tables are missing — run supabase/schema.sql in the Supabase SQL editor.${code} ${message}`;
   }
-  return "Something went wrong.";
+  if (message.includes("row-level security")) {
+    return `Refused by the database${code}: ${message}${detail ? ` (${detail})` : ""}`;
+  }
+  return `${message}${code}${detail ? ` — ${detail}` : ""}` || "Something went wrong.";
 }
 
 export function useStore() {

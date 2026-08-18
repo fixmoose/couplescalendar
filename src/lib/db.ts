@@ -244,7 +244,8 @@ export async function loadWorkspace(
  * Events
  * ------------------------------------------------------------------ */
 
-const eventPayload = (draft: EventDraft, userId: string) => ({
+/** created_by is filled by the database from the session — see the schema. */
+const eventPayload = (draft: EventDraft) => ({
   calendar_id: draft.calendarId,
   title: draft.title.trim() || "(no title)",
   notes: draft.notes.trim() || null,
@@ -254,13 +255,12 @@ const eventPayload = (draft: EventDraft, userId: string) => ({
   all_day: draft.allDay,
   privacy: draft.privacy ?? null,
   importance: draft.importance ?? "normal",
-  created_by: userId,
 });
 
 export async function insertEvent(supabase: Client, draft: EventDraft, userId: string) {
   const { data, error } = await supabase
     .from("cc_events")
-    .insert(eventPayload(draft, userId))
+    .insert(eventPayload(draft))
     .select("id")
     .single();
   if (error) throw error;
@@ -279,9 +279,10 @@ export async function updateEvent(
   draft: EventDraft,
   userId: string,
 ) {
-  const payload = eventPayload(draft, userId);
-  delete (payload as Partial<typeof payload>).created_by;
-  const { error } = await supabase.from("cc_events").update(payload).eq("id", id);
+  const { error } = await supabase
+    .from("cc_events")
+    .update(eventPayload(draft))
+    .eq("id", id);
   if (error) throw error;
   await Promise.all([
     setShares(supabase, id, draft.sharedWith, userId),
@@ -422,7 +423,6 @@ export async function attachmentUrl(supabase: Client, attachment: Attachment) {
 export async function insertCalendar(
   supabase: Client,
   input: { name: string; color: ColorKey; groupId?: string; privacy: Privacy },
-  userId: string,
 ) {
   const { data, error } = await supabase
     .from("cc_calendars")
@@ -432,7 +432,6 @@ export async function insertCalendar(
       color: input.color,
       group_id: input.groupId ?? null,
       privacy: input.privacy,
-      owner_id: userId,
     })
     .select("id")
     .single();
@@ -462,7 +461,7 @@ export async function insertGroup(
 ) {
   const { data, error } = await supabase
     .from("cc_groups")
-    .insert({ name: name.trim() || "New group", owner_id: userId })
+    .insert({ name: name.trim() || "New group" })
     .select("id")
     .single();
   if (error) throw error;
@@ -512,7 +511,6 @@ export async function deleteGroup(supabase: Client, id: string) {
 export async function insertInvites(
   supabase: Client,
   rows: { email: string; token: string; groupId?: string }[],
-  userId: string,
 ) {
   const { data, error } = await supabase
     .from("cc_invitations")
@@ -521,7 +519,6 @@ export async function insertInvites(
         email: row.email,
         token: row.token,
         group_id: row.groupId ?? null,
-        invited_by: userId,
         status: "pending",
       })),
     )

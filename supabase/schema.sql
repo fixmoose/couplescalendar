@@ -57,6 +57,16 @@ end $$;
 drop view if exists cc_calendar_feed;
 drop view if exists cc_event_guests;
 
+-- Ownership columns are filled by the database from the session, so a client
+-- can never disagree with the policy about who it is. Every "owner" policy
+-- below compares against auth.uid(), and these defaults guarantee the match.
+alter table if exists cc_events      alter column created_by  set default auth.uid();
+alter table if exists cc_calendars   alter column owner_id    set default auth.uid();
+alter table if exists cc_groups      alter column owner_id    set default auth.uid();
+alter table if exists cc_invitations alter column invited_by  set default auth.uid();
+alter table if exists cc_attachments alter column uploaded_by set default auth.uid();
+alter table if exists cc_event_shares alter column shared_by  set default auth.uid();
+
 -- ---------------------------------------------------------------------------
 -- Tables
 -- ---------------------------------------------------------------------------
@@ -75,7 +85,7 @@ alter table cc_profiles add column if not exists avatar_url text;
 create table if not exists cc_groups (
   id         uuid primary key default gen_random_uuid(),
   name       text not null,
-  owner_id   uuid not null references cc_profiles (id) on delete cascade,
+  owner_id   uuid not null default auth.uid() references cc_profiles (id) on delete cascade,
   created_at timestamptz not null default now()
 );
 
@@ -92,7 +102,7 @@ create table if not exists cc_calendars (
   name       text not null,
   kind       text not null default 'personal' check (kind in ('personal', 'shared')),
   color      text not null default 'orange',
-  owner_id   uuid not null references cc_profiles (id) on delete cascade,
+  owner_id   uuid not null default auth.uid() references cc_profiles (id) on delete cascade,
   group_id   uuid references cc_groups (id) on delete set null,
   -- What people who share a group with the owner may see:
   --   details = the whole event, busy = an anonymous block, hidden = nothing.
@@ -126,7 +136,7 @@ create table if not exists cc_events (
   -- Flagged as needing attention; shown to everyone who can see the event.
   importance  text not null default 'normal'
               check (importance in ('normal', 'urgent')),
-  created_by  uuid not null references cc_profiles (id) on delete cascade,
+  created_by  uuid not null default auth.uid() references cc_profiles (id) on delete cascade,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   constraint cc_events_time_order check (ends_at >= starts_at)
