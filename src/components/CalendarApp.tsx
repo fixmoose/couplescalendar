@@ -40,6 +40,7 @@ import { EventDialog } from "./EventDialog";
 import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
 import { PersonPanel } from "./PersonPanel";
+import { SubscribeDialog } from "./SubscribeDialog";
 import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
 import { TimeGridView } from "./TimeGridView";
@@ -80,6 +81,7 @@ export function CalendarApp() {
   const [notice, setNotice] = useState<string | null>(null);
   const [person, setPerson] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
     null,
@@ -573,6 +575,7 @@ export function CalendarApp() {
         onNewGroup={() => setDialog({ kind: "group" })}
         onEditGroup={(group) => setDialog({ kind: "group", group })}
         onInvite={() => setInviting(true)}
+        onSubscribe={() => setSubscribing(true)}
         onOpenPerson={setPerson}
         openMenu={setMenu}
       />
@@ -621,6 +624,8 @@ export function CalendarApp() {
       )}
 
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+
+      {subscribing && <SubscribeDialog onClose={() => setSubscribing(false)} />}
 
       <Toast
         message={

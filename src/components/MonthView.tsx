@@ -138,16 +138,8 @@ export function MonthView({
                   <div
                     key={day.toISOString()}
                     data-day={day.toISOString()}
-                    onClick={() => {
-                      const start = new Date(day);
-                      start.setHours(9, 0, 0, 0);
-                      handlers.onSelectSlot(start, addHours(start, 1), false);
-                    }}
-                    onDoubleClick={() => {
-                      const start = new Date(day);
-                      start.setHours(9, 0, 0, 0);
-                      handlers.onCreate(start, addHours(start, 1), false);
-                    }}
+                    // Clicking a day in the month opens it; right-click adds.
+                    onClick={() => handlers.onNavigate(day, "day")}
                     onContextMenu={(e) => handlers.onSlotMenu(e, day, false)}
                     onDragEnter={(e) => {
                       if (!dragHasFiles(e)) return;

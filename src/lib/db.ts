@@ -8,6 +8,7 @@ import type {
   CalendarEvent,
   ColorKey,
   EventDraft,
+  Feed,
   Group,
   Importance,
   Invite,
@@ -86,6 +87,7 @@ interface FeedRow {
   privacy: Privacy | null;
   importance: Importance;
   created_by: string;
+  feed_id: string | null;
   masked: boolean;
 }
 
@@ -144,6 +146,70 @@ export interface Workspace {
   calendars: Calendar[];
   events: CalendarEvent[];
   invites: Invite[];
+  feeds: Feed[];
+}
+
+interface FeedRow {
+  id: string;
+  calendar_id: string;
+  name: string;
+  url: string;
+  mode: "once" | "auto";
+  interval_minutes: number;
+  last_synced_at: string | null;
+  last_status: string | null;
+  last_error: string | null;
+  event_count: number;
+}
+
+const toFeed = (row: FeedRow): Feed => ({
+  id: row.id,
+  calendarId: row.calendar_id,
+  name: row.name,
+  url: row.url,
+  mode: row.mode,
+  intervalMinutes: row.interval_minutes,
+  lastSyncedAt: row.last_synced_at ?? undefined,
+  lastStatus: row.last_status ?? undefined,
+  lastError: row.last_error ?? undefined,
+  eventCount: row.event_count,
+});
+
+/** Subscribing to a calendar creates the calendar it lands in, then the feed. */
+export async function insertFeed(
+  supabase: Client,
+  input: {
+    name: string;
+    url: string;
+    color: ColorKey;
+    mode: "once" | "auto";
+    intervalMinutes: number;
+  },
+) {
+  const calendarId = await insertCalendar(supabase, {
+    name: input.name,
+    color: input.color,
+    privacy: "busy",
+  });
+
+  const { data, error } = await supabase
+    .from("cc_calendar_feeds")
+    .insert({
+      calendar_id: calendarId,
+      name: input.name,
+      url: input.url,
+      mode: input.mode,
+      interval_minutes: input.intervalMinutes,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id as string;
+}
+
+export async function deleteFeed(supabase: Client, id: string) {
+  const { error } = await supabase.from("cc_calendar_feeds").delete().eq("id", id);
+  if (error) throw error;
 }
 
 /**
@@ -161,7 +227,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, feeds] =
     await Promise.all([
       supabase.from("cc_profiles").select("id,email,display_name,avatar_color,avatar_url"),
       supabase.from("cc_groups").select("id,name,owner_id"),
@@ -173,7 +239,7 @@ export async function loadWorkspace(
       supabase
         .from("cc_calendar_feed")
         .select(
-          "id,calendar_id,owner_id,title,notes,location,starts_at,ends_at,all_day,color,privacy,importance,created_by,masked",
+          "id,calendar_id,owner_id,title,notes,location,starts_at,ends_at,all_day,color,privacy,importance,created_by,feed_id,masked",
         ),
       supabase.from("cc_event_guests").select("event_id,user_id"),
       supabase
@@ -183,9 +249,15 @@ export async function loadWorkspace(
         .from("cc_invitations")
         .select("id,email,token,invited_by,group_id,event_id,status,error,created_at")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("cc_calendar_feeds")
+        .select(
+          "id,calendar_id,name,url,mode,interval_minutes,last_synced_at,last_status,last_error,event_count",
+        )
+        .order("created_at"),
     ]);
 
-  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites]
+  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, feeds]
     .map((r) => r.error)
     .find(Boolean);
   if (firstError) throw firstError;
@@ -236,9 +308,11 @@ export async function loadWorkspace(
       createdBy: row.created_by,
       sharedWith: sharesByEvent.get(row.id) ?? [],
       attachments: filesByEvent.get(row.id),
+      feedId: row.feed_id ?? undefined,
       masked: row.masked || undefined,
     })),
     invites: ((invites.data ?? []) as InviteRow[]).map(toInvite),
+    feeds: ((feeds.data ?? []) as FeedRow[]).map(toFeed),
   };
 }
 

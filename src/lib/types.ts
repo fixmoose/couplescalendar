@@ -99,6 +99,8 @@ export interface CalendarEvent {
   importance?: Importance;
   /** Files dropped onto this event. Never exposed on a masked event. */
   attachments?: Attachment[];
+  /** Set when the event was imported from a subscribed calendar. */
+  feedId?: string;
   /**
    * Set by the store when the viewer may only see that this time is taken.
    * Masked events carry no details — see maskEvent() in lib/access.ts.
@@ -127,6 +129,20 @@ export interface EventDraft {
   privacy?: Privacy;
   importance?: Importance;
   attachments?: Attachment[];
+}
+
+/** A Google or Outlook calendar we mirror by its iCal address. */
+export interface Feed {
+  id: string;
+  calendarId: string;
+  name: string;
+  url: string;
+  mode: "once" | "auto";
+  intervalMinutes: number;
+  lastSyncedAt?: string;
+  lastStatus?: string;
+  lastError?: string;
+  eventCount: number;
 }
 
 /** An emailed invitation to join CouplesCalendar. */

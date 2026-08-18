@@ -11,8 +11,10 @@ import {
   Palette,
   Pencil,
   Plus,
+  RefreshCw,
   Settings2,
   Share2,
+  TriangleAlert,
   Trash2,
   UserPlus,
   Users,
@@ -217,6 +219,7 @@ export function Sidebar({
   onEditGroup,
   onInvite,
   onOpenPerson,
+  onSubscribe,
   openMenu,
 }: {
   selected: Date;
@@ -228,6 +231,7 @@ export function Sidebar({
   onEditGroup: (group: Group) => void;
   onInvite: () => void;
   onOpenPerson: (personId: string) => void;
+  onSubscribe: () => void;
   openMenu: (state: MenuState) => void;
 }) {
   const store = useStore();
@@ -360,6 +364,48 @@ export function Sidebar({
         {shared.map((c) => (
           <CalendarRow key={c.id} calendar={c} onMenu={calendarMenu} />
         ))}
+
+        <SectionTitle
+          action={<AddButton label="Subscribe to a calendar" onClick={onSubscribe} />}
+        >
+          Subscribed
+        </SectionTitle>
+        {store.feeds.length === 0 && (
+          <p className="px-2 py-1 text-[12px] leading-relaxed text-ink-faint">
+            Bring in Google or Outlook with the + above.
+          </p>
+        )}
+        {store.feeds.map((feed) => {
+          const calendar = store.calendarById(feed.calendarId);
+          return (
+            <button
+              key={feed.id}
+              type="button"
+              onClick={onSubscribe}
+              title={
+                feed.lastStatus === "error"
+                  ? feed.lastError
+                  : `${feed.eventCount} events · ${feed.mode === "auto" ? `syncs every ${feed.intervalMinutes / 60}h` : "imported once"}`
+              }
+              className="flex w-full items-center gap-2.5 rounded-lg py-[5px] pr-2 pl-2 text-left transition hover:bg-surface-2"
+            >
+              <span
+                style={colorVar(calendar?.color ?? "blue")}
+                className="cc-dot h-2.5 w-2.5 shrink-0 rounded-full"
+              />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                {feed.name}
+              </span>
+              {feed.lastStatus === "error" ? (
+                <TriangleAlert size={12} className="shrink-0 text-[#d1443c]" />
+              ) : (
+                feed.mode === "auto" && (
+                  <RefreshCw size={11} className="shrink-0 text-ink-faint" />
+                )
+              )}
+            </button>
+          );
+        })}
 
         <SectionTitle
           action={<AddButton label="Invite someone" onClick={onInvite} />}

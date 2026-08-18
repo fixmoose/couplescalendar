@@ -207,6 +207,33 @@ values go into Vercel (Project → Settings → Environment Variables):
 
 Optional: `UNIONE_FROM_EMAIL`, `UNIONE_FROM_NAME`.
 
+## Subscribing to Google and Outlook
+
+Sidebar → **Subscribed → +**. Paste the calendar's secret iCal address and
+choose **Import once** or **Keep synced** (hourly, six-hourly or daily).
+
+- Google Calendar → Settings → the calendar → *Secret address in iCal format*
+- Outlook → Settings → Calendar → Shared calendars → *Publish a calendar* →
+  "Can view all details" → the ICS link
+
+Each subscription lands in its own colour-coded calendar. Imported events are
+read-only both in the UI and in the database (`cc_events.feed_id is null` is
+required to update a row), because the upstream calendar owns them and the
+next sync would overwrite a local edit.
+
+`/api/cron/sync-feeds` re-reads everything that is due; `vercel.json`
+schedules it hourly, and each feed is only fetched once its own interval has
+elapsed. Protect it by setting `CRON_SECRET` in Vercel — Vercel Cron sends it
+automatically as a bearer token.
+
+Recurring events are expanded with `rrule` across a window of 60 days back and
+400 forward, and re-syncing upserts on `(feed_id, external_uid)`, so nothing
+duplicates and anything cancelled upstream disappears.
+
+**This is one-way.** Changes here never travel back to Google or Outlook —
+that needs OAuth against each provider (and Google verification for the
+calendar scope), which is a separate piece of work.
+
 ## Domain
 
 CouplesCalendar is part of **DocMaker Studio** and lives at

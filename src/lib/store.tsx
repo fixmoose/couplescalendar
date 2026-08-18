@@ -126,6 +126,16 @@ interface StoreValue extends Data {
   setGroupMembers: (groupId: string, memberIds: string[]) => void;
   renameGroup: (groupId: string, name: string) => void;
   deleteGroup: (groupId: string) => void;
+  /** Subscribe to a Google/Outlook iCal address; syncs immediately. */
+  addFeed: (input: {
+    name: string;
+    url: string;
+    color: ColorKey;
+    mode: "once" | "auto";
+    intervalMinutes: number;
+  }) => Promise<{ error?: string }>;
+  syncFeed: (id: string) => Promise<void>;
+  removeFeed: (id: string) => void;
   createInvites: (emails: string[], groupId?: string) => Promise<Invite[]>;
   updateInvite: (id: string, patch: Partial<Invite>) => void;
   cancelInvite: (id: string) => void;
@@ -141,6 +151,7 @@ const EMPTY: Data = {
   calendars: [],
   events: [],
   invites: [],
+  feeds: [],
   busyHidden: [],
 };
 
@@ -303,8 +314,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           .map((id) => d.people.find((p) => p.id === id))
           .filter((p) => p !== undefined),
 
+      // Imported events belong to the calendar they came from; editing them
+      // here would be undone by the next sync.
       canEditEvent: (event) =>
-        !event.masked && canEdit(calendarById(event.calendarId), userId, d.groups),
+        !event.masked &&
+        !event.feedId &&
+        canEdit(calendarById(event.calendarId), userId, d.groups),
 
       sharedWithMe: contacts
         .map((person) => ({
@@ -651,6 +666,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ),
 
       /* ---------------- invitations ---------------- */
+
+      addFeed: async (input) => {
+        try {
+          const id = await db.insertFeed(supabase, input);
+          // Pull it in straight away so the calendar is not empty on return.
+          const response = await fetch("/api/feeds/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ feedId: id }),
+          });
+          const result = await response.json().catch(() => ({}));
+          await refresh();
+          return response.ok ? {} : { error: result.error ?? "Could not read that calendar." };
+        } catch (e) {
+          const message = describe(e);
+          setError(message);
+          return { error: message };
+        }
+      },
+
+      syncFeed: async (id) => {
+        try {
+          const response = await fetch("/api/feeds/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ feedId: id }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) setError(result.error ?? "Could not read that calendar.");
+          await refresh();
+        } catch {
+          setError("Could not reach the sync service.");
+        }
+      },
+
+      removeFeed: (id) =>
+        write(
+          (s) => ({ ...s, feeds: s.feeds.filter((f) => f.id !== id) }),
+          async () => {
+            await db.deleteFeed(supabase, id);
+            await refresh();
+          },
+        ),
 
       createInvites: async (emails, groupId) => {
         const known = new Set(
