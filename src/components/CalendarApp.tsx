@@ -35,6 +35,7 @@ import type { CalendarEvent, CalendarView, EventDraft, Calendar, Group } from "@
 import { AgendaView } from "./AgendaView";
 import { CalendarDialog } from "./CalendarDialog";
 import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
+import { DayPanel } from "./DayPanel";
 import { EventDialog } from "./EventDialog";
 import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
@@ -595,7 +596,10 @@ export function CalendarApp() {
           <TimeGridView days={weekDays(date)} events={events} handlers={handlers} />
         )}
         {view === "day" && (
-          <TimeGridView days={[date]} events={events} handlers={handlers} />
+          <div className="flex min-h-0 flex-1">
+            <TimeGridView days={[date]} events={events} handlers={handlers} />
+            <DayPanel date={date} events={events} handlers={handlers} />
+          </div>
         )}
         {view === "agenda" && (
           <AgendaView date={date} events={events} handlers={handlers} />
