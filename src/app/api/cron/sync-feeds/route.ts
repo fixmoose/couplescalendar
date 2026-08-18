@@ -10,13 +10,23 @@ export const maxDuration = 60;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  const authorised =
-    !secret ||
-    request.headers.get("authorization") === `Bearer ${secret}` ||
-    new URL(request.url).searchParams.get("key") === secret;
 
-  if (!authorised) {
-    return NextResponse.json({ error: "Not authorised." }, { status: 401 });
+  // Fail loudly rather than open: without a secret in production this endpoint
+  // would let anyone make the app re-fetch every subscribed calendar.
+  if (!secret) {
+    if (process.env.VERCEL_ENV === "production") {
+      return NextResponse.json(
+        { error: "CRON_SECRET is not set — refusing to run unprotected." },
+        { status: 503 },
+      );
+    }
+  } else {
+    const authorised =
+      request.headers.get("authorization") === `Bearer ${secret}` ||
+      new URL(request.url).searchParams.get("key") === secret;
+    if (!authorised) {
+      return NextResponse.json({ error: "Not authorised." }, { status: 401 });
+    }
   }
 
   const admin = createAdminClient();
