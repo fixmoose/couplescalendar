@@ -6,6 +6,11 @@ import { NextResponse } from "next/server";
  * Set UNIONE_API_KEY (and optionally UNIONE_FROM_EMAIL / UNIONE_FROM_NAME) in
  * the environment. Without a key the route reports back cleanly so the UI can
  * fall back to copyable invite links instead of failing silently.
+ *
+ * UNIONE_FROM_EMAIL must live on a domain UniOne has verified, which cannot be
+ * calendar.docmaker.studio: that name is a CNAME to Vercel, and a CNAME
+ * excludes every other record, so the SPF/DKIM/verification TXT records have
+ * nowhere to go. Send from the apex (docmaker.studio) instead.
  */
 
 const UNIONE_ENDPOINT =
@@ -95,7 +100,7 @@ export async function POST(request: Request) {
             template_engine: "simple",
             body: { html: html(fromName, invite.link, message) },
             subject: `${fromName} invited you to CouplesCalendar`,
-            from_email: process.env.UNIONE_FROM_EMAIL ?? "no-reply@couplescalendar.app",
+            from_email: process.env.UNIONE_FROM_EMAIL ?? "no-reply@docmaker.studio",
             from_name: process.env.UNIONE_FROM_NAME ?? "CouplesCalendar",
             track_links: 0,
             track_read: 0,

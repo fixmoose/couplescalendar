@@ -225,10 +225,30 @@ Two things must know about the domain as well:
   `https://calendar.docmaker.studio` and add `http://localhost:3000/**` plus
   the Vercel preview pattern to the redirect allow-list. Without this,
   sign-in links bounce.
-- **UniOne**: the invitation sender must be a domain verified with them. Use a
-  dedicated subdomain such as `mail.docmaker.studio`, add their SPF/DKIM
-  records at GoDaddy, and set `UNIONE_FROM_EMAIL` to match — otherwise
-  invitations land in spam or are rejected outright.
+- **UniOne**: see below. The sending domain cannot be
+  `calendar.docmaker.studio`.
+
+### Why email cannot be sent from calendar.docmaker.studio
+
+`calendar.docmaker.studio` is a CNAME to Vercel. A name holding a CNAME may
+hold **no other records** (RFC 1034) — so the SPF, DKIM and ownership TXT
+records UniOne asks for have nowhere to live, and verification can never pass
+there. GoDaddy is not the problem; no DNS provider can do it.
+
+The sending domain does not have to match the site domain. Recipients happily
+see `CouplesCalendar <no-reply@docmaker.studio>` on mail about a calendar at
+`calendar.docmaker.studio`. So verify **`docmaker.studio`** at UniOne (or a
+dedicated `mail.docmaker.studio`, which has no CNAME either) and point
+`UNIONE_FROM_EMAIL` at it.
+
+Check any candidate domain before touching UniOne:
+
+```bash
+npm run check:mail docmaker.studio
+```
+
+It reports SPF, DKIM, DMARC, the UniOne ownership record, and flags a CNAME
+clash — reading public DNS, so it shows what UniOne will see.
 
 ## Stack
 
