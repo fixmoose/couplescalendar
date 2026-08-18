@@ -19,6 +19,45 @@
 create extension if not exists citext;
 
 -- ---------------------------------------------------------------------------
+-- Migration from earlier runs of this file
+-- ---------------------------------------------------------------------------
+
+-- An earlier version put a trigger on auth.users. That table is shared with
+-- every other app on this project, so a signup for any of them would create
+-- CouplesCalendar rows. cc_bootstrap_me() replaced it; remove the trigger.
+drop trigger if exists cc_on_auth_user_created on auth.users;
+drop function if exists cc_handle_new_user();
+
+-- Columns added after the tables were first created.
+alter table if exists cc_calendars
+  add column if not exists privacy text not null default 'busy';
+alter table if exists cc_events
+  add column if not exists privacy text;
+alter table if exists cc_events
+  add column if not exists importance text not null default 'normal';
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'cc_calendars_privacy_check') then
+    alter table cc_calendars add constraint cc_calendars_privacy_check
+      check (privacy in ('details', 'busy', 'hidden'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'cc_events_privacy_check') then
+    alter table cc_events add constraint cc_events_privacy_check
+      check (privacy in ('details', 'busy', 'hidden'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'cc_events_importance_check') then
+    alter table cc_events add constraint cc_events_importance_check
+      check (importance in ('normal', 'urgent'));
+  end if;
+end $$;
+
+-- CREATE OR REPLACE VIEW cannot insert columns in the middle of an existing
+-- view, so the feed is dropped and rebuilt rather than replaced.
+drop view if exists cc_calendar_feed;
+drop view if exists cc_event_guests;
+
+-- ---------------------------------------------------------------------------
 -- Tables
 -- ---------------------------------------------------------------------------
 
@@ -437,7 +476,7 @@ create policy cc_invitations_write on cc_invitations for all
 -- masked = true flag; everything else is refused outright.
 -- ---------------------------------------------------------------------------
 
-create or replace view cc_calendar_feed
+create view cc_calendar_feed
 with (security_invoker = false)
 as
 select
@@ -463,7 +502,7 @@ where acc.level in ('full', 'busy');
 grant select on cc_calendar_feed to authenticated;
 
 -- Guests are only ever listed for events the viewer can see in full.
-create or replace view cc_event_guests
+create view cc_event_guests
 with (security_invoker = false)
 as
 select s.event_id, s.user_id, s.shared_by
