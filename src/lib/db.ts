@@ -144,6 +144,16 @@ export interface Workspace {
   invites: Invite[];
 }
 
+/**
+ * Makes sure this app has a profile and a starter calendar for the signed-in
+ * user. Cheap and idempotent, so it runs on every load rather than relying on
+ * a trigger against the shared auth.users table.
+ */
+export async function bootstrapMe(supabase: Client) {
+  const { error } = await supabase.rpc("cc_bootstrap_me");
+  if (error) throw error;
+}
+
 /** Everything the calendar needs, in one round of parallel queries. */
 export async function loadWorkspace(
   supabase: Client,

@@ -171,6 +171,15 @@ The Supabase project is **shared with other apps** — it already holds ~176
 tables under `sm_`, `fm_`, `hw_`, `ab_` and other prefixes. Everything this app
 creates is therefore `CC_` prefixed, and the schema touches nothing else.
 
+That sharing extends to authentication: `auth.users` and the provider settings
+(including the Google client) are common to every app on the project. So this
+schema adds **no trigger on `auth.users`** — a signup for another app would
+otherwise create CouplesCalendar rows. Instead the client calls
+`cc_bootstrap_me()` on load, which creates this app's profile and starter
+calendar for whoever is signed in, and does nothing if they already exist.
+One Google OAuth client covers every app on the project; apps are separated by
+the redirect URLs allow-listed in Supabase, not by having a client each.
+
 `supabase/schema.sql` is idempotent (every policy drops before it is created),
 so paste the whole file into **Supabase → SQL editor → Run**. It creates:
 

@@ -237,76 +237,53 @@ create trigger cc_events_touch
   before update on cc_events
   for each row execute function cc_touch_updated_at();
 
--- New auth users get a profile automatically.
-create or replace function cc_handle_new_user()
-returns trigger
+-- Sets this app up for whoever is signed in: a profile and a calendar to write
+-- in. Called by the client on first load.
+--
+-- Deliberately NOT a trigger on auth.users: this Supabase project is shared
+-- with several other apps, and auth.users is common to all of them. A trigger
+-- there would create CouplesCalendar rows for people signing up to a different
+-- app entirely. Doing it on demand keeps this app's footprint inside CC_.
+create or replace function cc_bootstrap_me()
+returns void
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  palette text[] := array['orange','teal','violet','rose','blue','green','amber'];
+  me       uuid := auth.uid();
+  claims   jsonb;
+  palette  text[] := array['orange','teal','violet','rose','blue','green','amber'];
 begin
+  if me is null then
+    raise exception 'Not signed in.';
+  end if;
+
+  select raw_user_meta_data into claims from auth.users where id = me;
+
   insert into cc_profiles (id, email, display_name, avatar_url, avatar_color)
-  values (
-    new.id,
-    new.email,
+  select
+    me,
+    u.email,
     coalesce(
-      nullif(new.raw_user_meta_data ->> 'full_name', ''),
-      nullif(new.raw_user_meta_data ->> 'name', ''),
-      split_part(new.email, '@', 1)
+      nullif(claims ->> 'full_name', ''),
+      nullif(claims ->> 'name', ''),
+      split_part(u.email, '@', 1)
     ),
-    coalesce(
-      new.raw_user_meta_data ->> 'avatar_url',
-      new.raw_user_meta_data ->> 'picture'
-    ),
-    palette[1 + (abs(hashtext(new.id::text)) % array_length(palette, 1))]
-  )
-  on conflict (id) do nothing;
+    coalesce(claims ->> 'avatar_url', claims ->> 'picture'),
+    palette[1 + (abs(hashtext(me::text)) % array_length(palette, 1))]
+  from auth.users u
+  where u.id = me
+  on conflict (id) do update
+    set avatar_url = coalesce(cc_profiles.avatar_url, excluded.avatar_url);
 
   -- Nobody should land on a calendar they cannot write to.
-  insert into cc_calendars (name, kind, color, owner_id, privacy)
-  values ('My calendar', 'personal', 'orange', new.id, 'busy');
-
-  return new;
-end;
-$$;
-
-drop trigger if exists cc_on_auth_user_created on auth.users;
-create trigger cc_on_auth_user_created
-  after insert on auth.users
-  for each row execute function cc_handle_new_user();
-
--- Redeems an invitation: joins the group it was sent for and marks it used.
--- Security definer because the invitee cannot see the inviter's group yet.
-create or replace function cc_accept_invitation(p_token text)
-returns table (group_id uuid, invited_by uuid)
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  invite cc_invitations%rowtype;
-begin
-  select * into invite from cc_invitations
-  where token = p_token and status <> 'accepted'
-  limit 1;
-
-  if invite.id is null then
-    raise exception 'This invitation is no longer valid.';
+  if not exists (
+    select 1 from cc_calendars where owner_id = me and kind = 'personal'
+  ) then
+    insert into cc_calendars (name, kind, color, owner_id, privacy)
+    values ('My calendar', 'personal', 'orange', me, 'busy');
   end if;
-
-  if invite.group_id is not null then
-    insert into cc_group_members (group_id, user_id, role)
-    values (invite.group_id, auth.uid(), 'member')
-    on conflict do nothing;
-  end if;
-
-  update cc_invitations
-    set status = 'accepted', accepted_at = now(), accepted_by = auth.uid()
-    where id = invite.id;
-
-  return query select invite.group_id, invite.invited_by;
 end;
 $$;
 

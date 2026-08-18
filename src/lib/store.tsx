@@ -151,6 +151,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const load = useCallback(
     async (userId: string) => {
       prefs.current = readPrefs(userId);
+      // Creates this app's profile and first calendar if they are missing.
+      await db.bootstrapMe(supabase);
       const workspace = await db.loadWorkspace(
         supabase,
         new Set(prefs.current.hiddenCalendars),

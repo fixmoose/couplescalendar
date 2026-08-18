@@ -24,8 +24,12 @@ Shared calendar app. Next.js 16 App Router, React 19, Tailwind 4, TypeScript.
 - Date maths and layout packing live in `src/lib/date.ts`, not in components.
 - Attachments: bytes through `src/lib/files.ts` only; components never touch
   IndexedDB or Storage directly.
-- The Supabase project is shared with several other apps. Every table, view,
-  function, policy and bucket this app creates MUST be `CC_` prefixed, and
-  nothing outside that prefix may be read or written.
+- The Supabase project is shared with several other apps, distinguished by
+  table prefix. Every table, view, function, policy and bucket this app
+  creates MUST be `CC_` prefixed, and nothing outside that prefix may be read
+  or written.
+- `auth.users` and the auth provider settings are SHARED by all those apps.
+  Never add a trigger to `auth.users` and never change provider config for
+  this app alone — set this app up on demand via `cc_bootstrap_me()` instead.
 - Never commit `.env.local` or paste keys into tracked files.
 - Before finishing: `npm run lint` and `npx tsc --noEmit` must both be clean.
