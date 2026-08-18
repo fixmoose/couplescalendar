@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { CalendarApp } from "@/components/CalendarApp";
+import { PostLoginRedirect } from "@/components/PostLoginRedirect";
 import { StoreProvider } from "@/lib/store";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,6 +16,7 @@ export default async function CalendarPage() {
 
   return (
     <StoreProvider>
+      <PostLoginRedirect />
       <CalendarApp />
     </StoreProvider>
   );

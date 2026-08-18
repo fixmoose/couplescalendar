@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { rememberNext } from "@/lib/next-url";
 import { publicUrl } from "@/lib/site";
 import { createClient } from "@/lib/supabase/client";
 import { Button, Field, inputClass } from "./ui";
@@ -50,11 +51,13 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     setBusy(true);
     setError(null);
     const supabase = createClient();
+    // Where to land afterwards is remembered here rather than sent as a query
+    // string: Supabase matches the redirect against an allow-list, and an
+    // entry without a wildcard will not match a URL that carries a query.
+    rememberNext(next);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        redirectTo: `${publicUrl()}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
+      options: { redirectTo: `${publicUrl()}/auth/callback` },
     });
     if (error) {
       setError(error.message);
@@ -68,13 +71,15 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     setError(null);
     const supabase = createClient();
 
+    rememberNext(next);
+
     if (isSignup) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: name.trim() || email.split("@")[0] },
-          emailRedirectTo: `${publicUrl()}/auth/callback?next=${encodeURIComponent(next)}`,
+          emailRedirectTo: `${publicUrl()}/auth/callback`,
         },
       });
       if (error) {
