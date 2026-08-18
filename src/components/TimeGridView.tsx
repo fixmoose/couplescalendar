@@ -30,7 +30,14 @@ const BUSY_LANE_START = 1 - BUSY_LANE;
 
 const HOUR_H = 48;
 const DAY_H = HOUR_H * 24;
+/** Moving or resizing an existing event stays fine-grained. */
 const SNAP = 15;
+/** Creating one works in whole hours — fine-tune in the editor instead. */
+const HOUR = 60;
+/** The right-click menu offers the half hour you actually pointed at. */
+const MENU_SNAP = 30;
+/** How precisely the hover readout reports the time under the cursor. */
+const READOUT_SNAP = 5;
 const GUTTER = "64px";
 
 type Drag =
@@ -38,9 +45,12 @@ type Drag =
   | { mode: "move"; event: CalendarEvent; dayIndex: number; from: number; to: number; grab: number }
   | { mode: "resize"; event: CalendarEvent; dayIndex: number; from: number; to: number };
 
-function snap(minutes: number) {
-  return Math.round(minutes / SNAP) * SNAP;
+function snap(minutes: number, step = SNAP) {
+  return Math.round(minutes / step) * step;
 }
+
+const hourFloor = (minutes: number) => Math.floor(minutes / HOUR) * HOUR;
+const hourCeil = (minutes: number) => Math.ceil(minutes / HOUR) * HOUR;
 
 function clampDay(minutes: number) {
   return Math.max(0, Math.min(MINUTES_PER_DAY, minutes));
@@ -200,6 +210,8 @@ export function TimeGridView({
   const [drag, setDrag] = useState<Drag | null>(null);
   /** Hour slot highlighted while a file is dragged over the grid. */
   const [dropHint, setDropHint] = useState<{ dayIndex: number; hour: number } | null>(null);
+  /** Minutes under the pointer, so the grid can say what time you are on. */
+  const [hover, setHover] = useState<number | null>(null);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -260,11 +272,11 @@ export function TimeGridView({
       const { dayIndex, minutes } = pointToTime(ev.clientX, ev.clientY);
 
       if (current.mode === "create") {
-        const point = snap(minutes);
+        // Whole hours: dragging 17:20 → 18:40 gives 17:00 – 19:00.
         current = {
           ...current,
-          from: Math.min(current.anchor, point),
-          to: Math.max(current.anchor + SNAP, point),
+          from: Math.min(current.anchor, hourFloor(minutes)),
+          to: Math.max(current.anchor + HOUR, hourCeil(minutes)),
         };
       } else if (current.mode === "move") {
         const length = current.to - current.from;
@@ -455,12 +467,29 @@ export function TimeGridView({
           {/* Columns */}
           <div
             ref={gridRef}
+            onMouseMove={(e) => {
+              const { minutes } = pointToTime(e.clientX, e.clientY);
+              setHover(snap(minutes, READOUT_SNAP));
+            }}
+            onMouseLeave={() => setHover(null)}
             className="relative grid select-none"
             style={{
               gridColumn: "2 / -1",
               gridTemplateColumns: `repeat(${days.length}, minmax(0,1fr))`,
             }}
           >
+            {hover !== null && !drag && (
+              <div
+                className="pointer-events-none absolute inset-x-0 z-20"
+                style={{ top: (hover / MINUTES_PER_DAY) * DAY_H }}
+              >
+                <div className="h-px w-full bg-brand/45" />
+                <span className="absolute -top-[9px] -left-[52px] w-[46px] rounded-md bg-brand px-1 py-0.5 text-center text-[10px] font-semibold text-white tabular-nums">
+                  {timeLabel(addMinutes(startOfDay(days[0]), hover))}
+                </span>
+              </div>
+            )}
+
             {days.map((day, dayIndex) => (
               <div
                 key={day.toISOString()}
@@ -470,13 +499,13 @@ export function TimeGridView({
                 )}
                 onPointerDown={(e) => {
                   const { minutes } = pointToTime(e.clientX, e.clientY);
-                  const anchor = snap(minutes);
+                  const anchor = hourFloor(minutes);
                   beginDrag(e, {
                     mode: "create",
                     dayIndex,
                     anchor,
                     from: anchor,
-                    to: anchor + 60,
+                    to: anchor + HOUR,
                   });
                 }}
                 onClick={(e) => {
@@ -487,12 +516,12 @@ export function TimeGridView({
                 }}
                 onDoubleClick={(e) => {
                   const { minutes } = pointToTime(e.clientX, e.clientY);
-                  const from = snap(minutes);
-                  handlers.onCreate(at(dayIndex, from), at(dayIndex, from + 60), false);
+                  const from = hourFloor(minutes);
+                  handlers.onCreate(at(dayIndex, from), at(dayIndex, from + HOUR), false);
                 }}
                 onContextMenu={(e) => {
                   const { minutes } = pointToTime(e.clientX, e.clientY);
-                  handlers.onSlotMenu(e, at(dayIndex, snap(minutes)), false);
+                  handlers.onSlotMenu(e, at(dayIndex, snap(minutes, MENU_SNAP)), false);
                 }}
                 onDragEnter={(e) => dragHasFiles(e) && e.preventDefault()}
                 onDragOver={(e) => {
