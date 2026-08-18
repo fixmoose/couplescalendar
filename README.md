@@ -190,12 +190,45 @@ values go into Vercel (Project → Settings → Environment Variables):
 
 | Variable | Notes |
 | --- | --- |
+| `NEXT_PUBLIC_APP_URL` | `https://calendar.docmaker.studio` — invite links and metadata |
 | `NEXT_PUBLIC_SUPABASE_URL` | Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Safe for the browser |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server only** — bypasses row level security |
 | `UNIONE_API_KEY` | UniOne US; without it invites still generate links |
 
 Optional: `UNIONE_FROM_EMAIL`, `UNIONE_FROM_NAME`.
+
+## Domain
+
+CouplesCalendar is part of **DocMaker Studio** and lives at
+**calendar.docmaker.studio**.
+
+`docmaker.studio` is registered with DNS at GoDaddy (`ns11/ns12.domaincontrol.com`)
+and its apex points elsewhere, so only the subdomain is delegated — the main
+site is untouched.
+
+1. **Vercel** → project `couplescalendar` → Settings → Domains → add
+   `calendar.docmaker.studio`.
+2. **GoDaddy** → docmaker.studio → DNS → add the record Vercel shows, normally:
+
+   | Type | Name | Value | TTL |
+   | --- | --- | --- | --- |
+   | CNAME | `calendar` | `cname.vercel-dns.com` | 1 hour |
+
+   Copy the target exactly as Vercel displays it — newer projects are given a
+   per-account `*.vercel-dns-###.com` hostname instead.
+3. Certificates are issued automatically once the record resolves.
+
+Two things must know about the domain as well:
+
+- **Supabase** → Authentication → URL Configuration: set the Site URL to
+  `https://calendar.docmaker.studio` and add `http://localhost:3000/**` plus
+  the Vercel preview pattern to the redirect allow-list. Without this,
+  sign-in links bounce.
+- **UniOne**: the invitation sender must be a domain verified with them. Use a
+  dedicated subdomain such as `mail.docmaker.studio`, add their SPF/DKIM
+  records at GoDaddy, and set `UNIONE_FROM_EMAIL` to match — otherwise
+  invitations land in spam or are rejected outright.
 
 ## Stack
 

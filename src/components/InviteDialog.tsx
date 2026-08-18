@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { Check, Copy, Mail, Send, TriangleAlert } from "lucide-react";
 import { useState } from "react";
+import { SITE_URL } from "@/lib/site";
 import { useStore } from "@/lib/store";
 import type { Invite } from "@/lib/types";
 import { Button, Field, Modal, inputClass } from "./ui";
@@ -13,8 +14,12 @@ function parseEmails(input: string) {
 }
 
 function inviteLink(invite: Invite) {
-  if (typeof window === "undefined") return "";
-  return `${window.location.origin}/join/${invite.token}`;
+  // Falls back to the current origin so local development still produces a
+  // link you can actually click.
+  const base =
+    SITE_URL ||
+    (typeof window === "undefined" ? "" : window.location.origin);
+  return `${base}/join/${invite.token}`;
 }
 
 export function InviteDialog({ onClose }: { onClose: () => void }) {

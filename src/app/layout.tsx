@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SITE_URL } from "@/lib/site";
 import { themeScript } from "@/lib/theme-script";
 import "./globals.css";
 
@@ -7,9 +8,22 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CouplesCalendar",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "CouplesCalendar",
+    template: "%s · CouplesCalendar",
+  },
   description:
     "A shared calendar for the people you plan life with — personal, group and per-event sharing.",
+  applicationName: "CouplesCalendar",
+  openGraph: {
+    type: "website",
+    siteName: "CouplesCalendar",
+    url: SITE_URL,
+    title: "CouplesCalendar",
+    description:
+      "Share the plans that matter, keep the rest private. Part of DocMaker Studio.",
+  },
 };
 
 export const viewport: Viewport = {
