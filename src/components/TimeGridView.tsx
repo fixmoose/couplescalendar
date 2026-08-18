@@ -3,7 +3,9 @@
 import clsx from "clsx";
 import { addMinutes, format, isSameDay, isToday, startOfDay } from "date-fns";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Paperclip } from "lucide-react";
 import { colorVar } from "@/lib/colors";
+import { dragHasFiles, filesFromDrag } from "@/lib/files";
 import {
   isBanner,
   layoutDay,
@@ -15,7 +17,9 @@ import {
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
 import { EventPill, useEventColor } from "./EventPill";
+import { AttachmentBadge } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
+import { useFileDrop } from "./useFileDrop";
 import { Avatar } from "./ui";
 import type { ViewHandlers } from "./view-types";
 
@@ -51,6 +55,7 @@ function Block({
   onMenu,
   onMove,
   onResize,
+  onFiles,
 }: {
   event: CalendarEvent;
   style: React.CSSProperties;
@@ -61,12 +66,14 @@ function Block({
   onMenu: (e: React.MouseEvent) => void;
   onMove: (e: React.PointerEvent) => void;
   onResize: (e: React.PointerEvent) => void;
+  onFiles: (files: File[]) => void;
 }) {
   const color = useEventColor(event);
   const { provenance, others, label } = useEventPeople(event);
   const start = new Date(event.start);
   const end = new Date(event.end);
   const masked = Boolean(event.masked);
+  const { over, handlers: dropHandlers } = useFileDrop(onFiles);
 
   return (
     <div
@@ -74,6 +81,7 @@ function Block({
       onPointerDown={editable ? onMove : undefined}
       onClick={onOpen}
       onContextMenu={onMenu}
+      {...dropHandlers}
       title={masked ? label : `${event.title} — ${label}`}
       className={clsx(
         "group absolute overflow-hidden rounded-[7px] border px-2 py-1 text-[12px] transition select-none",
@@ -81,6 +89,7 @@ function Block({
           ? "cc-busy border-dashed"
           : "cc-tint cc-tint-border cc-rail hover:z-20 hover:shadow-[var(--shadow-sm)]",
         selected && "z-20 ring-2 ring-[var(--c)]",
+        over && !masked && "z-40 ring-2 ring-brand ring-offset-1",
       )}
     >
       <div className="flex items-center gap-1.5">
@@ -93,6 +102,7 @@ function Block({
         >
           {event.title}
         </div>
+        <AttachmentBadge count={event.attachments?.length ?? 0} className="opacity-80" />
         {provenance !== "private" && (
           <ProvenanceIcon provenance={provenance} className="opacity-70" />
         )}
@@ -170,6 +180,8 @@ export function TimeGridView({
   const gridRef = useRef<HTMLDivElement>(null);
   const justDragged = useRef(false);
   const [drag, setDrag] = useState<Drag | null>(null);
+  /** Hour slot highlighted while a file is dragged over the grid. */
+  const [dropHint, setDropHint] = useState<{ dayIndex: number; hour: number } | null>(null);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -452,6 +464,37 @@ export function TimeGridView({
                   const { minutes } = pointToTime(e.clientX, e.clientY);
                   handlers.onSlotMenu(e, at(dayIndex, snap(minutes)), false);
                 }}
+                onDragEnter={(e) => dragHasFiles(e) && e.preventDefault()}
+                onDragOver={(e) => {
+                  if (!dragHasFiles(e)) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  const { minutes } = pointToTime(e.clientX, e.clientY);
+                  const hour = Math.floor(minutes / 60);
+                  if (dropHint?.dayIndex !== dayIndex || dropHint?.hour !== hour) {
+                    setDropHint({ dayIndex, hour });
+                  }
+                }}
+                onDragLeave={(e) => {
+                  if (!dragHasFiles(e)) return;
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropHint(null);
+                }}
+                onDrop={(e) => {
+                  if (!dragHasFiles(e)) return;
+                  e.preventDefault();
+                  const files = filesFromDrag(e);
+                  const { minutes } = pointToTime(e.clientX, e.clientY);
+                  const hour = Math.floor(minutes / 60);
+                  setDropHint(null);
+                  if (files.length) {
+                    handlers.onDropFiles(
+                      files,
+                      at(dayIndex, hour * 60),
+                      at(dayIndex, hour * 60 + 60),
+                      false,
+                    );
+                  }
+                }}
               >
                 {hours.map((h) => (
                   <div
@@ -516,6 +559,7 @@ export function TimeGridView({
                         grab: minutes - from,
                       });
                     }}
+                    onFiles={(files) => handlers.onDropFilesOnEvent(files, p.event)}
                     onResize={(e) => {
                       e.stopPropagation();
                       const from = minutesFromMidnight(new Date(p.event.start));
@@ -540,6 +584,19 @@ export function TimeGridView({
                     }}
                   >
                     {timeLabel(at(dayIndex, drag.from))} – {timeLabel(at(dayIndex, drag.to))}
+                  </div>
+                )}
+
+                {dropHint?.dayIndex === dayIndex && (
+                  <div
+                    className="pointer-events-none absolute inset-x-[3px] z-40 flex flex-col items-center justify-center gap-1 rounded-[7px] border-2 border-dashed border-brand bg-brand-soft/90 px-1 text-center text-[11px] font-semibold text-brand"
+                    style={{ top: dropHint.hour * HOUR_H, height: HOUR_H }}
+                  >
+                    <Paperclip size={13} />
+                    <span className="truncate">
+                      Drop here · {String(dropHint.hour).padStart(2, "0")}:00–
+                      {String((dropHint.hour + 1) % 24).padStart(2, "0")}:00
+                    </span>
                   </div>
                 )}
 

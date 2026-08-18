@@ -6,11 +6,13 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Mail,
   Palette,
   Pencil,
   Plus,
   Settings2,
   Trash2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import Image from "next/image";
@@ -111,6 +113,48 @@ function MemberAvatar({ id }: { id: string }) {
   );
 }
 
+function PersonRow({
+  personId,
+  count,
+  onOpen,
+}: {
+  personId: string;
+  count: number;
+  onOpen: (personId: string) => void;
+}) {
+  const store = useStore();
+  const person = store.personById(personId);
+  if (!person) return null;
+  const busyShown = !store.busyHidden.includes(personId);
+
+  return (
+    <div className="group flex items-center gap-2.5 rounded-lg py-[5px] pr-1 pl-2 transition hover:bg-surface-2">
+      <Avatar
+        person={person}
+        size={18}
+        className={clsx("transition", !busyShown && "opacity-40 grayscale")}
+      />
+      <button
+        type="button"
+        onClick={() => onOpen(personId)}
+        title={`See everything between you and ${person.name}`}
+        className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+      >
+        {person.name}
+      </button>
+      <span className="shrink-0 text-[11px] text-ink-faint tabular-nums">{count}</span>
+      <button
+        type="button"
+        onClick={() => store.togglePersonBusy(personId)}
+        title={`${busyShown ? "Hide" : "Show"} ${person.name}'s busy times`}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface hover:text-ink"
+      >
+        {busyShown ? <Eye size={13} /> : <EyeOff size={13} />}
+      </button>
+    </div>
+  );
+}
+
 function SectionTitle({
   children,
   action,
@@ -150,6 +194,8 @@ export function Sidebar({
   onEditCalendar,
   onNewGroup,
   onEditGroup,
+  onInvite,
+  onOpenPerson,
   openMenu,
 }: {
   selected: Date;
@@ -159,11 +205,16 @@ export function Sidebar({
   onEditCalendar: (calendar: Calendar) => void;
   onNewGroup: () => void;
   onEditGroup: (group: Group) => void;
+  onInvite: () => void;
+  onOpenPerson: (personId: string) => void;
   openMenu: (state: MenuState) => void;
 }) {
   const store = useStore();
   const personal = store.myCalendars;
   const shared = store.sharedCalendars;
+  const pendingInvites = store.invites.filter(
+    (i) => i.status === "pending" || i.status === "sent" || i.status === "failed",
+  );
 
   const calendarMenu = (e: React.MouseEvent, calendar: Calendar) => {
     e.preventDefault();
@@ -248,13 +299,16 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="px-4 pb-3">
+      <div className="space-y-2 px-4 pb-3">
         <Button
           variant="primary"
           onClick={onNewEvent}
           className="w-full justify-center"
         >
           <Plus size={16} /> New event
+        </Button>
+        <Button variant="outline" onClick={onInvite} className="w-full justify-center">
+          <UserPlus size={15} /> Invite people
         </Button>
       </div>
 
@@ -286,43 +340,61 @@ export function Sidebar({
           <CalendarRow key={c.id} calendar={c} onMenu={calendarMenu} />
         ))}
 
-        <SectionTitle>People</SectionTitle>
-        {store.contacts.length === 0 && (
+        <SectionTitle
+          action={<AddButton label="Invite people" onClick={onInvite} />}
+        >
+          People who share with me
+        </SectionTitle>
+        {store.sharedWithMe.length === 0 && (
           <p className="px-2 py-1 text-[12px] text-ink-faint">
-            Add people to a group to see when they are free.
+            Nobody has shared anything with you yet.
           </p>
         )}
-        {store.contacts.map((person) => {
-          const on = !store.busyHidden.includes(person.id);
-          return (
-            <button
-              key={person.id}
-              type="button"
-              onClick={() => store.togglePersonBusy(person.id)}
-              title={`${on ? "Hide" : "Show"} ${person.name}'s busy times`}
-              className="flex w-full items-center gap-2.5 rounded-lg py-[5px] pr-2 pl-2 text-left transition hover:bg-surface-2"
-            >
-              <Avatar
-                person={person}
-                size={18}
-                className={clsx("transition", !on && "opacity-40 grayscale")}
-              />
-              <span
-                className={clsx(
-                  "min-w-0 flex-1 truncate text-[13px]",
-                  on ? "text-ink" : "text-ink-faint",
-                )}
+        {store.sharedWithMe.map(({ person, count }) => (
+          <PersonRow
+            key={person.id}
+            personId={person.id}
+            count={count}
+            onOpen={onOpenPerson}
+          />
+        ))}
+
+        <SectionTitle>People I share with</SectionTitle>
+        {store.iShareWith.length === 0 && (
+          <p className="px-2 py-1 text-[12px] text-ink-faint">
+            Right-click any event to put it on someone else&apos;s calendar.
+          </p>
+        )}
+        {store.iShareWith.map(({ person, count }) => (
+          <PersonRow
+            key={person.id}
+            personId={person.id}
+            count={count}
+            onOpen={onOpenPerson}
+          />
+        ))}
+
+        {pendingInvites.length > 0 && (
+          <>
+            <SectionTitle>Invited</SectionTitle>
+            {pendingInvites.map((invite) => (
+              <button
+                key={invite.id}
+                type="button"
+                onClick={onInvite}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[5px] text-left transition hover:bg-surface-2"
               >
-                {person.name}
-              </span>
-              {on ? (
-                <Eye size={13} className="shrink-0 text-ink-faint" />
-              ) : (
-                <EyeOff size={13} className="shrink-0 text-ink-faint" />
-              )}
-            </button>
-          );
-        })}
+                <Mail size={14} className="shrink-0 text-ink-faint" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">
+                  {invite.email}
+                </span>
+                <span className="shrink-0 text-[10px] font-semibold tracking-wide text-ink-faint uppercase">
+                  {invite.status}
+                </span>
+              </button>
+            ))}
+          </>
+        )}
 
         <SectionTitle action={<AddButton label="New group" onClick={onNewGroup} />}>
           My groups

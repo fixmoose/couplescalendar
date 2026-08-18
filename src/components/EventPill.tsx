@@ -5,7 +5,9 @@ import { colorVar } from "@/lib/colors";
 import { timeLabel } from "@/lib/date";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent, ColorKey } from "@/lib/types";
+import { AttachmentBadge } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
+import { useFileDrop } from "./useFileDrop";
 
 export function useEventColor(event: CalendarEvent): ColorKey {
   const { calendarById } = useStore();
@@ -26,6 +28,7 @@ export function EventPill({
   onOpen,
   onMenu,
   onDragStart,
+  onFiles,
 }: {
   event: CalendarEvent;
   banner: boolean;
@@ -35,11 +38,13 @@ export function EventPill({
   onOpen: (e: React.MouseEvent) => void;
   onMenu: (e: React.MouseEvent) => void;
   onDragStart?: (e: React.PointerEvent) => void;
+  onFiles?: (files: File[]) => void;
 }) {
   const color = useEventColor(event);
   const { provenance, others, label } = useEventPeople(event);
   const start = new Date(event.start);
   const masked = Boolean(event.masked);
+  const { over, handlers: dropHandlers } = useFileDrop((files) => onFiles?.(files));
 
   return (
     <div
@@ -55,6 +60,7 @@ export function EventPill({
         }
       }}
       onContextMenu={onMenu}
+      {...(onFiles && !masked ? dropHandlers : {})}
       title={`${event.title} — ${label}`}
       className={clsx(
         "flex h-[21px] w-full items-center gap-1.5 overflow-hidden px-1.5 text-[12px] leading-none transition select-none",
@@ -66,6 +72,7 @@ export function EventPill({
         continuesLeft ? "rounded-l-none" : "rounded-l-[5px]",
         continuesRight ? "rounded-r-none" : "rounded-r-[5px]",
         selected && "ring-2 ring-[var(--c)] ring-offset-1 ring-offset-[var(--surface)]",
+        over && "ring-2 ring-brand ring-offset-1 ring-offset-[var(--surface)]",
       )}
     >
       {!banner && !masked && (
@@ -85,6 +92,10 @@ export function EventPill({
         )}
         {event.title}
       </span>
+      <AttachmentBadge
+        count={event.attachments?.length ?? 0}
+        className={banner ? "opacity-90" : "text-ink-faint"}
+      />
 
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {/* On a busy block the useful detail is whose time it is. */}

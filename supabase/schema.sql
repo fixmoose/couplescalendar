@@ -4,9 +4,19 @@
 -- lower case, so these are created as cc_* and you can still write CC_events
 -- in a query — it resolves to the same table.
 --
+-- The project (mxxabikquupnwvlspzyz) is shared with other apps and already
+-- holds ~176 tables under other prefixes, so EVERY object here is CC_ prefixed
+-- and nothing outside that prefix is touched. The whole file is idempotent:
+-- paste it into the Supabase SQL editor and run it as many times as you like.
+--
 -- Not wired to the app yet: phase 1 runs on a local store (src/lib/store.tsx).
 -- This file is the target shape, so the switch is a store swap, not a rewrite.
--- Run it in the Supabase SQL editor when we start phase 2.
+
+-- ---------------------------------------------------------------------------
+-- Extensions
+-- ---------------------------------------------------------------------------
+
+create extension if not exists citext;
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -77,6 +87,35 @@ create table if not exists cc_events (
   constraint cc_events_time_order check (ends_at >= starts_at)
 );
 
+-- Files dropped onto a time slot: prescriptions, tickets, invoices, photos.
+-- Bytes live in the `cc_attachments` storage bucket; this table is metadata.
+create table if not exists cc_attachments (
+  id          uuid primary key default gen_random_uuid(),
+  event_id    uuid not null references cc_events (id) on delete cascade,
+  name        text not null,
+  size_bytes  bigint not null,
+  mime_type   text not null,
+  storage_path text not null unique,
+  uploaded_by uuid not null references cc_profiles (id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+
+-- Emailed invitations (sent through UniOne). The token is what the /join link
+-- carries; it is single use and consumed on sign-up.
+create table if not exists cc_invitations (
+  id         uuid primary key default gen_random_uuid(),
+  email      citext not null,
+  token      text not null unique,
+  invited_by uuid not null references cc_profiles (id) on delete cascade,
+  group_id   uuid references cc_groups (id) on delete set null,
+  status     text not null default 'pending'
+             check (status in ('pending', 'sent', 'failed', 'accepted')),
+  error      text,
+  created_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  accepted_by uuid references cc_profiles (id) on delete set null
+);
+
 -- The right-click → "add to their calendar" action: one row per person the
 -- event was pushed to. Distinct from sharing a whole calendar with a group.
 create table if not exists cc_event_shares (
@@ -95,6 +134,10 @@ create index if not exists cc_group_members_user_idx
   on cc_group_members (user_id);
 create index if not exists cc_calendars_group_idx
   on cc_calendars (group_id);
+create index if not exists cc_attachments_event_idx
+  on cc_attachments (event_id);
+create index if not exists cc_invitations_email_idx
+  on cc_invitations (email);
 
 -- ---------------------------------------------------------------------------
 -- Helpers (security definer: they must not be filtered by the policies that
@@ -223,8 +266,11 @@ alter table cc_calendars           enable row level security;
 alter table cc_calendar_visibility enable row level security;
 alter table cc_events              enable row level security;
 alter table cc_event_shares        enable row level security;
+alter table cc_attachments         enable row level security;
+alter table cc_invitations         enable row level security;
 
 -- Profiles: yourself, plus anyone you share a group with.
+drop policy if exists cc_profiles_read on cc_profiles;
 create policy cc_profiles_read on cc_profiles for select using (
   id = auth.uid()
   or exists (
@@ -234,20 +280,27 @@ create policy cc_profiles_read on cc_profiles for select using (
     where mine.user_id = auth.uid() and theirs.user_id = cc_profiles.id
   )
 );
+drop policy if exists cc_profiles_write on cc_profiles;
 create policy cc_profiles_write on cc_profiles for update using (id = auth.uid());
 
 -- Groups.
+drop policy if exists cc_groups_read on cc_groups;
 create policy cc_groups_read on cc_groups for select using (
   owner_id = auth.uid() or cc_is_group_member(id, auth.uid())
 );
+drop policy if exists cc_groups_insert on cc_groups;
 create policy cc_groups_insert on cc_groups for insert with check (owner_id = auth.uid());
+drop policy if exists cc_groups_update on cc_groups;
 create policy cc_groups_update on cc_groups for update using (owner_id = auth.uid());
+drop policy if exists cc_groups_delete on cc_groups;
 create policy cc_groups_delete on cc_groups for delete using (owner_id = auth.uid());
 
 -- Membership: members see the roster, the owner edits it.
+drop policy if exists cc_group_members_read on cc_group_members;
 create policy cc_group_members_read on cc_group_members for select using (
   user_id = auth.uid() or cc_is_group_member(group_id, auth.uid())
 );
+drop policy if exists cc_group_members_write on cc_group_members;
 create policy cc_group_members_write on cc_group_members for all using (
   exists (select 1 from cc_groups g where g.id = group_id and g.owner_id = auth.uid())
 ) with check (
@@ -255,36 +308,46 @@ create policy cc_group_members_write on cc_group_members for all using (
 );
 
 -- Calendars.
+drop policy if exists cc_calendars_read on cc_calendars;
 create policy cc_calendars_read on cc_calendars for select using (
   owner_id = auth.uid() or cc_is_group_member(group_id, auth.uid())
 );
+drop policy if exists cc_calendars_insert on cc_calendars;
 create policy cc_calendars_insert on cc_calendars for insert with check (owner_id = auth.uid());
+drop policy if exists cc_calendars_update on cc_calendars;
 create policy cc_calendars_update on cc_calendars for update using (owner_id = auth.uid());
+drop policy if exists cc_calendars_delete on cc_calendars;
 create policy cc_calendars_delete on cc_calendars for delete using (owner_id = auth.uid());
 
 -- Per-user view state.
+drop policy if exists cc_visibility_all on cc_calendar_visibility;
 create policy cc_visibility_all on cc_calendar_visibility for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- Events: the base table only ever hands over rows the viewer may see in FULL.
 -- Busy blocks come from the cc_calendar_feed view below, which is the only way
 -- to learn that someone else's time is taken — the details never leave the row.
+drop policy if exists cc_events_read on cc_events;
 create policy cc_events_read on cc_events for select using (
   cc_event_access(id, auth.uid()) = 'full'
 );
+drop policy if exists cc_events_insert on cc_events;
 create policy cc_events_insert on cc_events for insert with check (
   created_by = auth.uid() and cc_can_write_calendar(calendar_id, auth.uid())
 );
+drop policy if exists cc_events_update on cc_events;
 create policy cc_events_update on cc_events for update using (
   cc_can_write_calendar(calendar_id, auth.uid())
 ) with check (
   cc_can_write_calendar(calendar_id, auth.uid())
 );
+drop policy if exists cc_events_delete on cc_events;
 create policy cc_events_delete on cc_events for delete using (
   cc_can_write_calendar(calendar_id, auth.uid())
 );
 
 -- Per-event sharing.
+drop policy if exists cc_event_shares_read on cc_event_shares;
 create policy cc_event_shares_read on cc_event_shares for select using (
   user_id = auth.uid()
   or exists (
@@ -292,6 +355,7 @@ create policy cc_event_shares_read on cc_event_shares for select using (
     where e.id = event_id and cc_can_read_calendar(e.calendar_id, auth.uid())
   )
 );
+drop policy if exists cc_event_shares_write on cc_event_shares;
 create policy cc_event_shares_write on cc_event_shares for all using (
   shared_by = auth.uid()
   or exists (
@@ -301,6 +365,36 @@ create policy cc_event_shares_write on cc_event_shares for all using (
 ) with check (
   shared_by = auth.uid()
 );
+
+-- Attachments follow their event exactly: full access to the event means the
+-- files, busy access means you never learn they exist.
+drop policy if exists cc_attachments_read on cc_attachments;
+create policy cc_attachments_read on cc_attachments for select using (
+  cc_event_access(event_id, auth.uid()) = 'full'
+);
+drop policy if exists cc_attachments_write on cc_attachments;
+create policy cc_attachments_write on cc_attachments for all using (
+  exists (
+    select 1 from cc_events e
+    where e.id = event_id and cc_can_write_calendar(e.calendar_id, auth.uid())
+  )
+) with check (
+  uploaded_by = auth.uid()
+  and exists (
+    select 1 from cc_events e
+    where e.id = event_id and cc_can_write_calendar(e.calendar_id, auth.uid())
+  )
+);
+
+-- Invitations: the sender manages them; the invitee finds theirs by token.
+drop policy if exists cc_invitations_read on cc_invitations;
+create policy cc_invitations_read on cc_invitations for select using (
+  invited_by = auth.uid()
+  or email = (select email from cc_profiles where id = auth.uid())
+);
+drop policy if exists cc_invitations_write on cc_invitations;
+create policy cc_invitations_write on cc_invitations for all
+  using (invited_by = auth.uid()) with check (invited_by = auth.uid());
 
 -- ---------------------------------------------------------------------------
 -- Reading feed
@@ -343,3 +437,49 @@ from cc_event_shares s
 where cc_event_access(s.event_id, auth.uid()) = 'full';
 
 grant select on cc_event_guests to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Storage
+--
+-- One private bucket for event files. Objects are keyed
+-- <event_id>/<attachment_id>-<filename>, so the policies below can resolve the
+-- owning event from the first path segment and reuse cc_event_access().
+-- ---------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'cc_attachments',
+  'cc_attachments',
+  false,
+  26214400, -- 25 MB
+  null
+)
+on conflict (id) do update
+  set file_size_limit = excluded.file_size_limit,
+      public = excluded.public;
+
+drop policy if exists cc_attachments_object_read on storage.objects;
+create policy cc_attachments_object_read on storage.objects for select using (
+  bucket_id = 'cc_attachments'
+  and cc_event_access((split_part(name, '/', 1))::uuid, auth.uid()) = 'full'
+);
+
+drop policy if exists cc_attachments_object_write on storage.objects;
+create policy cc_attachments_object_write on storage.objects for insert with check (
+  bucket_id = 'cc_attachments'
+  and exists (
+    select 1 from cc_events e
+    where e.id = (split_part(name, '/', 1))::uuid
+      and cc_can_write_calendar(e.calendar_id, auth.uid())
+  )
+);
+
+drop policy if exists cc_attachments_object_delete on storage.objects;
+create policy cc_attachments_object_delete on storage.objects for delete using (
+  bucket_id = 'cc_attachments'
+  and exists (
+    select 1 from cc_events e
+    where e.id = (split_part(name, '/', 1))::uuid
+      and cc_can_write_calendar(e.calendar_id, auth.uid())
+  )
+);

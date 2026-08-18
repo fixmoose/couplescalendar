@@ -19,4 +19,10 @@ Shared calendar app. Next.js 16 App Router, React 19, Tailwind 4, TypeScript.
   `src/lib/colors.ts` and use the `.cc-dot` / `.cc-tint` / `.cc-solid` helpers so
   light and dark both work.
 - Date maths and layout packing live in `src/lib/date.ts`, not in components.
+- Attachments: bytes through `src/lib/files.ts` only; components never touch
+  IndexedDB or Storage directly.
+- The Supabase project is shared with several other apps. Every table, view,
+  function, policy and bucket this app creates MUST be `CC_` prefixed, and
+  nothing outside that prefix may be read or written.
+- Never commit `.env.local` or paste keys into tracked files.
 - Before finishing: `npm run lint` and `npx tsc --noEmit` must both be clean.

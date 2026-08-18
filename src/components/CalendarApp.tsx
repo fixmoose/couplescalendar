@@ -27,6 +27,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { colorVar, COLOR_KEYS, COLORS } from "@/lib/colors";
 import { timeLabel, weekDays } from "@/lib/date";
+import { storeFiles, titleFromFileName } from "@/lib/files";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent, CalendarView, EventDraft, Calendar, Group } from "@/lib/types";
 import { AgendaView } from "./AgendaView";
@@ -34,12 +35,14 @@ import { CalendarDialog } from "./CalendarDialog";
 import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
 import { EventDialog } from "./EventDialog";
 import { GroupDialog } from "./GroupDialog";
+import { InviteDialog } from "./InviteDialog";
+import { PersonPanel } from "./PersonPanel";
 import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
 import { TimeGridView } from "./TimeGridView";
 import { TopBar } from "./TopBar";
 import { PreviewBanner } from "./ViewAsMenu";
-import { Avatar } from "./ui";
+import { Avatar, Toast } from "./ui";
 import type { ViewHandlers } from "./view-types";
 
 type Dialog =
@@ -71,6 +74,10 @@ export function CalendarApp() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [uploading, setUploading] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [person, setPerson] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   const events = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -360,9 +367,62 @@ export function CalendarApp() {
     [openEventDialog],
   );
 
+  /**
+   * Drop a file on a time slot: store it, then open the editor pre-filled with
+   * that slot and the file attached, so times, notes and sharing get set in one
+   * pass rather than a second trip through the UI.
+   */
+  const dropFiles = useCallback(
+    async (files: File[], start: Date, end: Date, allDay: boolean) => {
+      setUploading(files.length);
+      const { stored, failed } = await storeFiles(files, store.currentUserId);
+      setUploading(0);
+      if (failed.length) setNotice(`Too large to attach: ${failed.join(", ")}`);
+      if (!stored.length) return;
+
+      setDialog({
+        kind: "event",
+        draft: {
+          calendarId: defaultCalendarId,
+          title: titleFromFileName(stored[0].name),
+          notes: "",
+          location: "",
+          start,
+          end,
+          allDay,
+          sharedWith: [],
+          attachments: stored,
+        },
+      });
+    },
+    [defaultCalendarId, store.currentUserId],
+  );
+
+  const dropFilesOnEvent = useCallback(
+    async (files: File[], event: CalendarEvent) => {
+      if (event.masked || !store.canEditEvent(event)) {
+        setNotice("You can only attach files to events you can edit.");
+        return;
+      }
+      setUploading(files.length);
+      const { stored, failed } = await storeFiles(files, store.currentUserId);
+      setUploading(0);
+      if (failed.length) setNotice(`Too large to attach: ${failed.join(", ")}`);
+      if (stored.length) {
+        store.attachToEvent(event.id, stored);
+        setNotice(
+          `${stored.length} file${stored.length === 1 ? "" : "s"} added to “${event.title}”`,
+        );
+      }
+    },
+    [store],
+  );
+
   const handlers: ViewHandlers = useMemo(
     () => ({
       selectedId,
+      onDropFiles: dropFiles,
+      onDropFilesOnEvent: dropFilesOnEvent,
       onOpenEvent: editEvent,
       onEventMenu: eventMenu,
       onCreate: openEventDialog,
@@ -372,7 +432,15 @@ export function CalendarApp() {
         setView(nextView);
       },
     }),
-    [editEvent, eventMenu, openEventDialog, selectedId, slotMenu],
+    [
+      dropFiles,
+      dropFilesOnEvent,
+      editEvent,
+      eventMenu,
+      openEventDialog,
+      selectedId,
+      slotMenu,
+    ],
   );
 
   const step = useCallback(
@@ -448,6 +516,8 @@ export function CalendarApp() {
         onEditCalendar={(calendar) => setDialog({ kind: "calendar", calendar })}
         onNewGroup={() => setDialog({ kind: "group" })}
         onEditGroup={(group) => setDialog({ kind: "group", group })}
+        onInvite={() => setInviting(true)}
+        onOpenPerson={setPerson}
         openMenu={setMenu}
       />
 
@@ -479,6 +549,30 @@ export function CalendarApp() {
       </main>
 
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
+
+      {person && (
+        <PersonPanel
+          personId={person}
+          onClose={() => setPerson(null)}
+          onOpenEvent={(event) => {
+            setPerson(null);
+            setDate(new Date(event.start));
+            editEvent(event);
+          }}
+        />
+      )}
+
+      {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+
+      <Toast
+        message={
+          uploading > 0
+            ? `Uploading ${uploading} file${uploading === 1 ? "" : "s"}…`
+            : notice
+        }
+        busy={uploading > 0}
+        onDismiss={() => setNotice(null)}
+      />
 
       {dialog?.kind === "event" && (
         <EventDialog

@@ -11,7 +11,9 @@ import {
   startOfDay,
 } from "date-fns";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Paperclip } from "lucide-react";
 import { layoutWeek, monthMatrix, weekDays } from "@/lib/date";
+import { dragHasFiles, filesFromDrag } from "@/lib/files";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
 import { EventPill } from "./EventPill";
@@ -39,6 +41,7 @@ export function MonthView({
   const [rowHeight, setRowHeight] = useState(0);
   const gridRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; overKey: string } | null>(null);
+  const [dropDay, setDropDay] = useState<string | null>(null);
   // A drag ends with a click event on the pill; swallow that one click.
   const justDragged = useRef(false);
 
@@ -140,12 +143,43 @@ export function MonthView({
                       handlers.onCreate(start, addHours(start, 1), false);
                     }}
                     onContextMenu={(e) => handlers.onSlotMenu(e, day, false)}
+                    onDragEnter={(e) => {
+                      if (!dragHasFiles(e)) return;
+                      e.preventDefault();
+                      setDropDay(day.toDateString());
+                    }}
+                    onDragOver={(e) => {
+                      if (!dragHasFiles(e)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                    }}
+                    onDragLeave={(e) => {
+                      if (!dragHasFiles(e)) return;
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropDay(null);
+                    }}
+                    onDrop={(e) => {
+                      if (!dragHasFiles(e)) return;
+                      e.preventDefault();
+                      setDropDay(null);
+                      const files = filesFromDrag(e);
+                      if (!files.length) return;
+                      const start = new Date(day);
+                      start.setHours(9, 0, 0, 0);
+                      handlers.onDropFiles(files, start, addHours(start, 1), false);
+                    }}
                     className={clsx(
                       "group relative min-w-0 border-r border-b border-line transition-colors last:border-r-0",
                       inMonth ? "bg-surface" : "bg-surface-2/60",
                       drag?.overKey === day.toDateString() && "bg-brand-soft",
+                      dropDay === day.toDateString() &&
+                        "bg-brand-soft ring-2 ring-brand ring-inset",
                     )}
                   >
+                    {dropDay === day.toDateString() && (
+                      <span className="pointer-events-none absolute inset-x-1 bottom-1 z-30 flex items-center justify-center gap-1 rounded-md bg-brand px-1 py-0.5 text-[10px] font-semibold text-white">
+                        <Paperclip size={10} /> Drop file here
+                      </span>
+                    )}
                     <div className="flex h-[26px] items-center justify-center pt-[3px]">
                       <button
                         type="button"
@@ -212,6 +246,9 @@ export function MonthView({
                         handlers.onOpenEvent(seg.event);
                       }}
                       onMenu={(e) => handlers.onEventMenu(e, seg.event)}
+                      onFiles={(files) =>
+                        handlers.onDropFilesOnEvent(files, seg.event)
+                      }
                     />
                   </div>
                 ))}

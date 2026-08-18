@@ -31,6 +31,9 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 | Sharing at a glance | Every event shows who else is on it (avatars) and how it reached you: shared with you ↙, shared out ↗, on a group calendar 👥 |
 | Busy blocks | Other people's private time appears as an anonymous grey block in its own lane, so the group can see you are taken without seeing what you are doing |
 | Preview as | Look at the calendar as any group member and see exactly what they see |
+| Drop files | Drag a PDF, prescription or photo onto any hour slot — it uploads, then the editor opens on that slot with the file attached, ready for times, notes and sharing. Drop onto an existing event to attach it there |
+| People | Two lists — *People who share with me* and *People I share with* — with item counts; click anyone for everything running between you |
+| Invite | Invite by email; they get a link to create an account. Sent through UniOne |
 | Right-click empty space | New event here, new all-day event, jump to that day |
 | Calendars | Personal and group-shared, colour-coded, toggled from the sidebar |
 | Groups | Create a group, pick members, invite by email, optionally spin up a shared calendar with it |
@@ -82,6 +85,33 @@ Use **Preview as** (the avatar, top right) to look at your calendar as Ana or
 anyone else and confirm what they get. It exists because phase 1 has no login;
 Supabase auth replaces it.
 
+## Files on the calendar
+
+Drag any file onto a time slot. The hovered hour highlights (`13:00–14:00`),
+the file uploads, and the event editor opens on that slot with the file
+attached and the title guessed from the filename — so exact times, notes and
+sharing get set in one pass. Dropping onto an existing event attaches it there
+instead, and the editor has its own drop zone. Files ride along with the
+event's privacy: busy-only viewers never learn they exist.
+
+Locally the bytes go to IndexedDB (`cc.files`) and metadata to the store.
+Phase 2 swaps `storeFile()` in `src/lib/files.ts` for an upload into the
+`cc_attachments` bucket; nothing else changes.
+
+## People, and who shares what
+
+The sidebar splits contacts by direction, because "people" alone did not say
+who was sending and who was receiving:
+
+- **People who share with me** — anyone whose items reach you, with a count.
+- **People I share with** — anyone your items reach.
+
+Click a person for a panel with both directions: everything they shared with
+you, everything you shared with them, dates, files and a switch for their busy
+times. **Invite people** takes a list of email addresses, optionally drops them
+into a group, and emails each one a `/join/<token>` link. Every invitation also
+carries a copyable link, so invites still work before mail is configured.
+
 ## Project layout
 
 ```
@@ -103,11 +133,15 @@ src/
   lib/
     types.ts          domain model (mirrors the SQL tables)
     access.ts         who may see what: full / busy / none, and event masking
+    files.ts          attachment storage (IndexedDB now, Supabase Storage next)
+    supabase/         browser + server clients, ready for phase 2
     date.ts           week/month maths, lane packing, overlap layout
     colors.ts         palette; colours are mixed in CSS so both themes work
     store.tsx         all reads/writes — the seam Supabase plugs into
     seed.ts           demo data, anchored to the current week
-supabase/schema.sql   CC_ tables, RLS policies, triggers (phase 2)
+  app/api/invite/     sends invitation emails through UniOne
+  app/join/[token]/   where an invite link lands
+supabase/schema.sql   CC_ tables, RLS policies, storage bucket (phase 2)
 ```
 
 ## Data, and the road to Supabase
@@ -131,11 +165,37 @@ Tables are prefixed `CC_` as agreed. Postgres folds unquoted identifiers to
 lower case, so they are created as `cc_events`, `cc_groups`, … and `CC_events`
 in a query still resolves to the same table.
 
-When we start phase 2:
+### Applying the schema
 
-```bash
-cp .env.local.example .env.local   # fill in the project URL + anon key
-```
+The Supabase project is **shared with other apps** — it already holds ~176
+tables under `sm_`, `fm_`, `hw_`, `ab_` and other prefixes. Everything this app
+creates is therefore `CC_` prefixed, and the schema touches nothing else.
+
+`supabase/schema.sql` is idempotent (every policy drops before it is created),
+so paste the whole file into **Supabase → SQL editor → Run**. It creates:
+
+`cc_profiles`, `cc_groups`, `cc_group_members`, `cc_calendars`,
+`cc_calendar_visibility`, `cc_events`, `cc_attachments`, `cc_invitations`,
+`cc_event_shares`, the `cc_calendar_feed` and `cc_event_guests` views, and the
+private `cc_attachments` storage bucket with its policies.
+
+It cannot be applied with the anon or service-role key alone — Supabase does
+not expose arbitrary DDL over the REST API — so it is a copy-paste, or
+`supabase link` + `supabase db push` if you add the CLI.
+
+### Environment
+
+`.env.local` is git-ignored and already filled in locally. The same four
+values go into Vercel (Project → Settings → Environment Variables):
+
+| Variable | Notes |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Safe for the browser |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Server only** — bypasses row level security |
+| `UNIONE_API_KEY` | UniOne US; without it invites still generate links |
+
+Optional: `UNIONE_FROM_EMAIL`, `UNIONE_FROM_NAME`.
 
 ## Stack
 

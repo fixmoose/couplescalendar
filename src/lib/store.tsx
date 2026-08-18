@@ -12,11 +12,13 @@ import {
 import { accessFor, canEdit, maskEvent, participantIds } from "./access";
 import { ME, SEED_CALENDARS, SEED_GROUPS, SEED_PEOPLE, seedEvents } from "./seed";
 import type {
+  Attachment,
   Calendar,
   CalendarEvent,
   ColorKey,
   EventDraft,
   Group,
+  Invite,
   Person,
   Privacy,
 } from "./types";
@@ -30,7 +32,7 @@ import type {
  * whole of the migration.
  */
 
-const STORAGE_KEY = "cc.state.v2"; // v2: privacy, busyHidden, viewerId
+const STORAGE_KEY = "cc.state.v3"; // v3: attachments + invites
 
 /** Avatar colours handed out to newly invited people, in order. */
 const COLOR_CYCLE: ColorKey[] = ["violet", "teal", "blue", "amber", "green", "rose"];
@@ -42,6 +44,8 @@ interface Data {
   events: CalendarEvent[];
   /** Whose busy blocks the viewer has switched off in the sidebar. */
   busyHidden: string[];
+  /** People invited by email who have not signed up yet. */
+  invites: Invite[];
   /**
    * Phase 1 has no auth, so "who am I" is state. The Preview-as control in the
    * top bar flips it, which is how you check what your group actually sees.
@@ -72,6 +76,17 @@ interface StoreValue extends Data {
   /** Everyone who can see this event in full. */
   participantsOf: (event: CalendarEvent) => Person[];
   canEditEvent: (event: CalendarEvent) => boolean;
+  /** People who have sent something my way, with how many items. */
+  sharedWithMe: { person: Person; count: number }[];
+  /** People I have sent something to. */
+  iShareWith: { person: Person; count: number }[];
+  /** The two directions of traffic between me and one person. */
+  itemsWith: (personId: string) => { fromThem: CalendarEvent[]; toThem: CalendarEvent[] };
+  attachToEvent: (eventId: string, attachments: Attachment[]) => void;
+  removeAttachment: (eventId: string, attachmentId: string) => void;
+  createInvites: (emails: string[], groupId?: string) => Invite[];
+  updateInvite: (id: string, patch: Partial<Invite>) => void;
+  cancelInvite: (id: string) => void;
   setCalendarPrivacy: (id: string, privacy: Privacy) => void;
   setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
   createEvent: (draft: EventDraft) => CalendarEvent;
@@ -115,6 +130,7 @@ function freshData(): Data {
     calendars: SEED_CALENDARS,
     events: seedEvents(new Date()),
     busyHidden: [],
+    invites: [],
     viewerId: ME,
   };
 }
@@ -140,6 +156,7 @@ function draftToEvent(
     createdBy,
     sharedWith: draft.sharedWith,
     privacy: draft.privacy,
+    attachments: draft.attachments,
     ...base,
   };
 }
@@ -194,6 +211,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       calendars: [],
       events: [],
       busyHidden: [],
+      invites: [],
       viewerId: ME,
     };
     const viewerId = d.viewerId;
@@ -270,6 +288,93 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       canEditEvent: (event) =>
         canEdit(calendarById(event.calendarId), viewerId, d.groups),
+
+      sharedWithMe: contacts
+        .map((person) => ({
+          person,
+          count: d.events.filter(
+            (e) =>
+              e.createdBy === person.id &&
+              accessFor(e, calendarById(e.calendarId), viewerId, d.groups) === "full",
+          ).length,
+        }))
+        .filter((row) => row.count > 0),
+
+      iShareWith: contacts
+        .map((person) => ({
+          person,
+          count: d.events.filter(
+            (e) =>
+              e.createdBy === viewerId &&
+              accessFor(e, calendarById(e.calendarId), person.id, d.groups) === "full",
+          ).length,
+        }))
+        .filter((row) => row.count > 0),
+
+      itemsWith: (personId) => ({
+        fromThem: d.events.filter(
+          (e) =>
+            e.createdBy === personId &&
+            accessFor(e, calendarById(e.calendarId), viewerId, d.groups) === "full",
+        ),
+        toThem: d.events.filter(
+          (e) =>
+            e.createdBy === viewerId &&
+            accessFor(e, calendarById(e.calendarId), personId, d.groups) === "full",
+        ),
+      }),
+
+      attachToEvent: (eventId, attachments) =>
+        mapEvents((e) =>
+          e.id === eventId
+            ? { ...e, attachments: [...(e.attachments ?? []), ...attachments] }
+            : e,
+        ),
+
+      removeAttachment: (eventId, attachmentId) =>
+        mapEvents((e) =>
+          e.id === eventId
+            ? {
+                ...e,
+                attachments: (e.attachments ?? []).filter((a) => a.id !== attachmentId),
+              }
+            : e,
+        ),
+
+      createInvites: (emails, groupId) => {
+        const existing = new Set(
+          d.people.map((p) => p.email.toLowerCase()).concat(
+            d.invites
+              .filter((i) => i.status !== "failed")
+              .map((i) => i.email.toLowerCase()),
+          ),
+        );
+        const invites: Invite[] = emails
+          .map((email) => email.trim())
+          .filter((email) => email.includes("@") && !existing.has(email.toLowerCase()))
+          .map((email) => ({
+            id: newId("i"),
+            email,
+            invitedBy: viewerId,
+            groupId,
+            status: "pending" as const,
+            createdAt: new Date().toISOString(),
+            token: `${newId("t")}${Math.random().toString(36).slice(2, 10)}`,
+          }));
+        if (invites.length) {
+          patch((s) => ({ ...s, invites: [...s.invites, ...invites] }));
+        }
+        return invites;
+      },
+
+      updateInvite: (id, update) =>
+        patch((s) => ({
+          ...s,
+          invites: s.invites.map((i) => (i.id === id ? { ...i, ...update } : i)),
+        })),
+
+      cancelInvite: (id) =>
+        patch((s) => ({ ...s, invites: s.invites.filter((i) => i.id !== id) })),
 
       viewAs: (personId) => patch((s) => ({ ...s, viewerId: personId })),
 

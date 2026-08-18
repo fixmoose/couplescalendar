@@ -60,6 +60,19 @@ export interface Calendar {
  */
 export type Privacy = "details" | "busy" | "hidden";
 
+/** A file dropped onto the calendar: prescription, ticket, invoice, photo. */
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  /** MIME type, used to decide between a preview and an icon. */
+  type: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  /** Set once the file lives in Supabase Storage; local files use IndexedDB. */
+  path?: string;
+}
+
 export interface CalendarEvent {
   id: string;
   calendarId: string;
@@ -80,6 +93,8 @@ export interface CalendarEvent {
   sharedWith: string[];
   /** Overrides the calendar's privacy for this one event. */
   privacy?: Privacy;
+  /** Files dropped onto this event. Never exposed on a masked event. */
+  attachments?: Attachment[];
   /**
    * Set by the store when the viewer may only see that this time is taken.
    * Masked events carry no details — see maskEvent() in lib/access.ts.
@@ -102,4 +117,18 @@ export interface EventDraft {
   sharedWith: string[];
   /** Per-event override of the calendar's privacy; undefined = inherit. */
   privacy?: Privacy;
+  attachments?: Attachment[];
+}
+
+/** An emailed invitation to join CouplesCalendar. */
+export interface Invite {
+  id: string;
+  email: string;
+  invitedBy: string;
+  groupId?: string;
+  status: "pending" | "sent" | "failed" | "accepted";
+  createdAt: string;
+  /** Token that ends up in the invite link. */
+  token: string;
+  error?: string;
 }

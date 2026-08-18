@@ -2,12 +2,15 @@
 
 import clsx from "clsx";
 import { format } from "date-fns";
-import { Check, CopyPlus, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check, CopyPlus, Paperclip, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { colorVar } from "@/lib/colors";
+import { storeFiles } from "@/lib/files";
 import { useStore } from "@/lib/store";
-import type { CalendarEvent, EventDraft } from "@/lib/types";
+import type { Attachment, CalendarEvent, EventDraft } from "@/lib/types";
+import { AttachmentList } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
+import { useFileDrop } from "./useFileDrop";
 import { PrivacyPicker } from "./PrivacyPicker";
 import { Avatar, Button, Field, Modal, controlClass, inputClass } from "./ui";
 
@@ -202,6 +205,22 @@ export function EventDialog({
           />
         </Field>
 
+        <Field label="Files">
+          <FileDropField
+            attachments={form.attachments ?? []}
+            onAdd={(added) =>
+              set("attachments", [...(form.attachments ?? []), ...added])
+            }
+            onRemove={(id) =>
+              set(
+                "attachments",
+                (form.attachments ?? []).filter((a) => a.id !== id),
+              )
+            }
+            uploadedBy={store.currentUserId}
+          />
+        </Field>
+
         <Field label="Who else can see it">
           <PrivacyPicker
             value={form.privacy}
@@ -339,6 +358,11 @@ function SharedEventView({
             <p className="text-[13px] whitespace-pre-wrap text-ink">{event.notes}</p>
           </Field>
         )}
+        {event.attachments && event.attachments.length > 0 && (
+          <Field label="Files">
+            <AttachmentList attachments={event.attachments} />
+          </Field>
+        )}
         <Field label="Calendar">
           <p className="text-[13px] text-ink">
             {calendar?.name}
@@ -351,5 +375,69 @@ function SharedEventView({
         </p>
       </div>
     </Modal>
+  );
+}
+
+
+/** Drop zone plus a file picker, used inside the event editor. */
+function FileDropField({
+  attachments,
+  uploadedBy,
+  onAdd,
+  onRemove,
+}: {
+  attachments: Attachment[];
+  uploadedBy: string;
+  onAdd: (attachments: Attachment[]) => void;
+  onRemove: (id: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const take = async (files: File[]) => {
+    if (!files.length) return;
+    setBusy(true);
+    setError(null);
+    const { stored, failed } = await storeFiles(files, uploadedBy);
+    setBusy(false);
+    if (failed.length) setError(`Too large: ${failed.join(", ")}`);
+    if (stored.length) onAdd(stored);
+  };
+
+  const { over, handlers } = useFileDrop((files) => void take(files));
+
+  return (
+    <div className="space-y-2">
+      <AttachmentList attachments={attachments} onRemove={onRemove} />
+
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        {...handlers}
+        className={clsx(
+          "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-[13px] transition",
+          over
+            ? "border-brand bg-brand-soft text-brand"
+            : "border-line text-ink-faint hover:border-brand/50 hover:text-ink",
+        )}
+      >
+        <Paperclip size={14} />
+        {busy ? "Adding…" : "Drop files here, or click to choose"}
+      </button>
+
+      {error && <p className="text-[12px] text-[#d1443c]">{error}</p>}
+
+      <input
+        ref={input}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          void take([...(e.target.files ?? [])]);
+          e.target.value = "";
+        }}
+      />
+    </div>
   );
 }

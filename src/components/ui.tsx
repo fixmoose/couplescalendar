@@ -174,6 +174,45 @@ export const controlClass =
 
 export const inputClass = `${controlClass} w-full`;
 
+/** Bottom-centre status line: uploads, "added to …", errors. */
+export function Toast({
+  message,
+  busy,
+  onDismiss,
+}: {
+  message: string | null;
+  busy?: boolean;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    if (!message || busy) return;
+    const id = window.setTimeout(onDismiss, 4000);
+    return () => window.clearTimeout(id);
+  }, [message, busy, onDismiss]);
+
+  if (!message) return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
+      <div className="cc-pop pointer-events-auto flex items-center gap-2.5 rounded-full border border-line bg-surface px-4 py-2 text-[13px] text-ink shadow-[var(--shadow-md)]">
+        {busy && (
+          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-brand" />
+        )}
+        <span>{message}</span>
+        {!busy && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="-mr-1.5 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-surface-2"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Modal({
   title,
   onClose,
