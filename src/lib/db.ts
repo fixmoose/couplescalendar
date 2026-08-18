@@ -116,6 +116,7 @@ interface InviteRow {
   token: string;
   invited_by: string;
   group_id: string | null;
+  event_id: string | null;
   status: Invite["status"];
   error: string | null;
   created_at: string;
@@ -127,6 +128,7 @@ const toInvite = (row: InviteRow): Invite => ({
   token: row.token,
   invitedBy: row.invited_by,
   groupId: row.group_id ?? undefined,
+  eventId: row.event_id ?? undefined,
   status: row.status,
   error: row.error ?? undefined,
   createdAt: row.created_at,
@@ -179,7 +181,7 @@ export async function loadWorkspace(
         .select("id,event_id,name,size_bytes,mime_type,storage_path,uploaded_by,created_at"),
       supabase
         .from("cc_invitations")
-        .select("id,email,token,invited_by,group_id,status,error,created_at")
+        .select("id,email,token,invited_by,group_id,event_id,status,error,created_at")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -510,7 +512,7 @@ export async function deleteGroup(supabase: Client, id: string) {
 
 export async function insertInvites(
   supabase: Client,
-  rows: { email: string; token: string; groupId?: string }[],
+  rows: { email: string; token: string; groupId?: string; eventId?: string }[],
 ) {
   const { data, error } = await supabase
     .from("cc_invitations")
@@ -519,10 +521,11 @@ export async function insertInvites(
         email: row.email,
         token: row.token,
         group_id: row.groupId ?? null,
+        event_id: row.eventId ?? null,
         status: "pending",
       })),
     )
-    .select("id,email,token,invited_by,group_id,status,error,created_at");
+    .select("id,email,token,invited_by,group_id,event_id,status,error,created_at");
   if (error) throw error;
   return ((data ?? []) as InviteRow[]).map(toInvite);
 }

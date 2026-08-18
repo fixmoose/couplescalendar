@@ -68,6 +68,11 @@ alter table if exists cc_invitations alter column invited_by  set default auth.u
 alter table if exists cc_attachments alter column uploaded_by set default auth.uid();
 alter table if exists cc_event_shares alter column shared_by  set default auth.uid();
 
+-- An invitation can be about one event: "Ana invited you to Dinner". Accepting
+-- it grants the share, so people can be invited before they have an account.
+alter table if exists cc_invitations
+  add column if not exists event_id uuid references cc_events (id) on delete cascade;
+
 -- ---------------------------------------------------------------------------
 -- Tables
 -- ---------------------------------------------------------------------------
@@ -164,6 +169,7 @@ create table if not exists cc_invitations (
   token      text not null unique,
   invited_by uuid not null references cc_profiles (id) on delete cascade,
   group_id   uuid references cc_groups (id) on delete set null,
+  event_id   uuid references cc_events (id) on delete cascade,
   status     text not null default 'pending'
              check (status in ('pending', 'sent', 'failed', 'accepted')),
   error      text,

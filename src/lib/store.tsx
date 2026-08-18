@@ -13,6 +13,7 @@ import {
 } from "react";
 import { canEdit, participantIds } from "./access";
 import * as db from "./db";
+import { inviteToEvent } from "./invites";
 import { createClient } from "./supabase/client";
 import type {
   Attachment,
@@ -253,6 +254,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         avatarUrl: user?.user_metadata?.avatar_url as string | undefined,
       } satisfies Person);
 
+    /** Emails typed into the share box belong to people with no account yet. */
+    const sendInvites = async (eventId: string, draft: EventDraft) => {
+      if (!draft.inviteEmails?.length) return;
+      await inviteToEvent(
+        supabase,
+        draft.inviteEmails,
+        {
+          id: eventId,
+          title: draft.title,
+          start: draft.start,
+          end: draft.end,
+          allDay: draft.allDay,
+          location: draft.location,
+          notes: draft.notes,
+        },
+        { name: me.name, email: me.email },
+      );
+    };
+
     /** Does this event reach that person at all? */
     const reaches = (event: CalendarEvent, personId: string) => {
       if (event.sharedWith.includes(personId)) return true;
@@ -342,7 +362,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ],
           }),
           async () => {
-            await db.insertEvent(supabase, draft, userId);
+            const id = await db.insertEvent(supabase, draft, userId);
+            await sendInvites(id, draft);
             await refresh();
           },
         ),
@@ -369,6 +390,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
           async () => {
             await db.updateEvent(supabase, draft.id, draft, userId);
+            await sendInvites(draft.id, draft);
             await refresh();
           },
         ),

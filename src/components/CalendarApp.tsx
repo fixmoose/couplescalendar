@@ -113,6 +113,7 @@ export function CalendarApp() {
           end,
           allDay,
           sharedWith: [],
+          inviteEmails: [],
         },
       }),
     [defaultCalendarId],
@@ -134,7 +135,9 @@ export function CalendarApp() {
         end: new Date(event.end),
         allDay: event.allDay,
         sharedWith: event.sharedWith,
+        inviteEmails: [],
         privacy: event.privacy,
+        importance: event.importance,
       },
     });
   }, []);
@@ -429,6 +432,7 @@ export function CalendarApp() {
           end,
           allDay,
           sharedWith: [],
+          inviteEmails: [],
           attachments: stored,
         },
       });

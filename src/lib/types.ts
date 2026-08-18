@@ -121,6 +121,8 @@ export interface EventDraft {
   end: Date;
   allDay: boolean;
   sharedWith: string[];
+  /** Addresses with no account yet — they get an emailed invitation. */
+  inviteEmails?: string[];
   /** Per-event override of the calendar's privacy; undefined = inherit. */
   privacy?: Privacy;
   importance?: Importance;
@@ -133,6 +135,8 @@ export interface Invite {
   email: string;
   invitedBy: string;
   groupId?: string;
+  /** Set when the invitation is about one event rather than a group. */
+  eventId?: string;
   status: "pending" | "sent" | "failed" | "accepted";
   createdAt: string;
   /** Token that ends up in the invite link. */

@@ -406,8 +406,14 @@ export function Sidebar({
         )}
 
         <SectionTitle action={<AddButton label="New group" onClick={onNewGroup} />}>
-          My groups of people
+          {store.groups.length === 1 ? "My group" : "My groups"}
         </SectionTitle>
+        {store.groups.length === 0 && (
+          <p className="px-2 py-1 text-[12px] leading-relaxed text-ink-faint">
+            A group is just a name for several people, so you can share with all
+            of them at once.
+          </p>
+        )}
         {store.groups.map((group) => (
           <button
             key={group.id}

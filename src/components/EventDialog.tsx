@@ -1,10 +1,9 @@
 "use client";
-
 import clsx from "clsx";
+
 import { format } from "date-fns";
-import { Check, CopyPlus, Paperclip, Trash2 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { colorVar } from "@/lib/colors";
+import { CopyPlus, Paperclip, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes } from "@/lib/files";
 import { useStore } from "@/lib/store";
@@ -13,8 +12,9 @@ import { AttachmentList } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
 import { PrivacyPicker } from "./PrivacyPicker";
+import { ShareField } from "./ShareField";
 import { LocationLink, SmartText } from "./SmartText";
-import { Avatar, Button, Field, Modal, controlClass, inputClass } from "./ui";
+import { Button, Field, Modal, controlClass, inputClass } from "./ui";
 
 const dateValue = (d: Date) => format(d, "yyyy-MM-dd");
 const timeValue = (d: Date) => format(d, "HH:mm");
@@ -50,17 +50,6 @@ export function EventDialog({
 
   const set = <K extends keyof EventDraft>(key: K, value: EventDraft[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
-
-  /** Everyone I share a group with — the people I can push an event to. */
-  const contacts = useMemo(() => {
-    const ids = new Set(
-      store.groups
-        .filter((g) => g.memberIds.includes(store.currentUserId))
-        .flatMap((g) => g.memberIds),
-    );
-    ids.delete(store.currentUserId);
-    return [...ids].map((id) => store.personById(id)).filter((p) => p !== undefined);
-  }, [store]);
 
   const save = () => {
     let { start, end } = form;
@@ -237,46 +226,14 @@ export function EventDialog({
           />
         </Field>
 
-        <Field label="Also on their calendar">
-          <div className="flex flex-wrap gap-1.5">
-            {contacts.length === 0 && (
-              <p className="text-[12px] text-ink-faint">
-                Add people to a group first.
-              </p>
-            )}
-            {contacts.map((person) => {
-              const on = form.sharedWith.includes(person.id);
-              return (
-                <button
-                  key={person.id}
-                  type="button"
-                  onClick={() =>
-                    set(
-                      "sharedWith",
-                      on
-                        ? form.sharedWith.filter((id) => id !== person.id)
-                        : [...form.sharedWith, person.id],
-                    )
-                  }
-                  style={colorVar(person.avatarColor)}
-                  className={clsx(
-                    "flex items-center gap-1.5 rounded-full border py-1 pr-2.5 pl-1 text-[13px] transition",
-                    on
-                      ? "cc-tint cc-tint-border font-medium"
-                      : "border-line text-ink-muted hover:bg-surface-2",
-                  )}
-                >
-                  <Avatar person={person} size={20} />
-                  {person.name}
-                  {on && <Check size={13} />}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-1.5 text-[12px] text-ink-faint">
-            People you pick here always see the full event, whatever the
-            privacy setting above says.
-          </p>
+        <Field label="Share with">
+          <ShareField
+            sharedWith={form.sharedWith}
+            inviteEmails={form.inviteEmails ?? []}
+            onChange={({ sharedWith, inviteEmails }) =>
+              setForm((f) => ({ ...f, sharedWith, inviteEmails }))
+            }
+          />
         </Field>
       </div>
     </Modal>
