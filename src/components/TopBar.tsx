@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
 import { useTheme } from "@/lib/theme";
 import type { CalendarView } from "@/lib/types";
-import { ViewAsMenu } from "./ViewAsMenu";
+import { AccountMenu } from "./AccountMenu";
 import { Button, IconButton, Segmented, inputClass } from "./ui";
 
 export function TopBar({
@@ -76,7 +76,7 @@ export function TopBar({
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </IconButton>
 
-        <ViewAsMenu />
+        <AccountMenu />
       </div>
     </header>
   );

@@ -1,10 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { AcceptInvite } from "@/components/AcceptInvite";
+import { createClient } from "@/lib/supabase/server";
 
 /**
- * Where an invite link lands. Phase 2 turns this into the Supabase sign-up
- * flow: look the token up in CC_invitations, create the account, join the
- * group, mark the invite accepted.
+ * Where an invite link lands. Signed-in visitors redeem it immediately;
+ * everyone else is sent to sign up and comes back here afterwards.
  */
 export default async function JoinPage({
   params,
@@ -12,6 +14,14 @@ export default async function JoinPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/signup?next=${encodeURIComponent(`/join/${token}`)}`);
+  }
 
   return (
     <main className="flex min-h-full items-center justify-center bg-bg px-4 py-16">
@@ -27,25 +37,17 @@ export default async function JoinPage({
           You have been invited
         </h1>
         <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">
-          Someone wants to share plans with you on CouplesCalendar — the parts
-          they choose, and nothing else.
+          Accept to join the group that invited you. You keep your own calendar
+          — only what people choose to share crosses over.
         </p>
 
-        <div className="mt-5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink-faint">
-          Invitation code
-          <div className="font-mono text-[13px] break-all text-ink">{token}</div>
-        </div>
-
-        <p className="mt-5 text-[13px] text-ink-muted">
-          Accounts open once the Supabase sign-up lands. Until then, this link
-          confirms the invitation is valid.
-        </p>
+        <AcceptInvite token={token} />
 
         <Link
-          href="/"
-          className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-brand px-5 text-sm font-medium text-white transition hover:bg-brand-strong"
+          href="/calendar"
+          className="mt-4 inline-flex text-[13px] font-medium text-ink-muted hover:text-ink"
         >
-          Open the calendar
+          Skip for now
         </Link>
       </div>
     </main>

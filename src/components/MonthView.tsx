@@ -6,6 +6,7 @@ import {
   addHours,
   differenceInCalendarDays,
   format,
+  isSameDay,
   isSameMonth,
   isToday,
   startOfDay,
@@ -140,6 +141,11 @@ export function MonthView({
                     onClick={() => {
                       const start = new Date(day);
                       start.setHours(9, 0, 0, 0);
+                      handlers.onSelectSlot(start, addHours(start, 1), false);
+                    }}
+                    onDoubleClick={() => {
+                      const start = new Date(day);
+                      start.setHours(9, 0, 0, 0);
                       handlers.onCreate(start, addHours(start, 1), false);
                     }}
                     onContextMenu={(e) => handlers.onSlotMenu(e, day, false)}
@@ -173,6 +179,9 @@ export function MonthView({
                       drag?.overKey === day.toDateString() && "bg-brand-soft",
                       dropDay === day.toDateString() &&
                         "bg-brand-soft ring-2 ring-brand ring-inset",
+                      handlers.selectedSlot &&
+                        isSameDay(new Date(handlers.selectedSlot.start), day) &&
+                        "ring-2 ring-brand/60 ring-inset",
                     )}
                   >
                     {dropDay === day.toDateString() && (

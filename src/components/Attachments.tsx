@@ -1,58 +1,176 @@
 "use client";
 
 import clsx from "clsx";
-import { Download, FileText, ImageIcon, Paperclip, X } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  ImageIcon,
+  Loader2,
+  Paperclip,
+  Presentation,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
-import { attachmentUrl, formatBytes, isImage, isPdf } from "@/lib/files";
+import { attachmentUrl } from "@/lib/db";
+import { formatBytes, isImage, isPdf, isText } from "@/lib/files";
+import { useStore } from "@/lib/store";
 import type { Attachment } from "@/lib/types";
+import { HoverCard } from "./HoverCard";
 
-/** Resolves the stored bytes to a URL for preview and download. */
-function useAttachmentUrl(attachment: Attachment) {
+/**
+ * Signed URL for a private file. Anyone who can see the event in full can
+ * read its files — that is the storage policy, so the download simply works
+ * for the people you shared with and nobody else.
+ */
+function useAttachmentUrl(attachment: Attachment, enabled = true) {
+  const { supabase } = useStore();
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    let revoked: string | null = null;
+    if (!enabled) return;
     let alive = true;
-    attachmentUrl(attachment).then((next) => {
-      if (!alive) {
-        if (next) URL.revokeObjectURL(next);
-        return;
-      }
-      revoked = next;
-      setUrl(next);
+    void attachmentUrl(supabase, attachment).then((next) => {
+      if (alive) setUrl(next);
     });
     return () => {
       alive = false;
-      if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [attachment]);
+  }, [attachment, enabled, supabase]);
 
   return url;
 }
 
-function Thumb({ attachment }: { attachment: Attachment }) {
-  const url = useAttachmentUrl(attachment);
+/** Icon for a MIME type — rendered directly so no component is built in render. */
+function FileIcon({ type, size }: { type: string; size: number }) {
+  if (isImage(type)) return <ImageIcon size={size} />;
+  if (isPdf(type)) return <FileType size={size} />;
+  if (type.includes("spreadsheet") || type.includes("excel") || type.includes("csv")) {
+    return <FileSpreadsheet size={size} />;
+  }
+  if (type.includes("presentation") || type.includes("powerpoint")) {
+    return <Presentation size={size} />;
+  }
+  return <FileText size={size} />;
+}
+
+function Thumb({ attachment, size = 36 }: { attachment: Attachment; size?: number }) {
+  const url = useAttachmentUrl(attachment, isImage(attachment.type));
 
   if (isImage(attachment.type) && url) {
     return (
-      // Blob URLs cannot go through next/image, and these are user files.
+      // A signed blob from Storage — next/image cannot optimise these.
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={url}
         alt=""
-        className="h-9 w-9 shrink-0 rounded-md border border-line object-cover"
+        style={{ width: size, height: size }}
+        className="shrink-0 rounded-md border border-line object-cover"
       />
     );
   }
   return (
     <span
+      style={{ width: size, height: size }}
       className={clsx(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line",
-        isPdf(attachment.type) ? "bg-[#d1443c]/10 text-[#d1443c]" : "bg-surface-2 text-ink-muted",
+        "flex shrink-0 items-center justify-center rounded-md border border-line",
+        isPdf(attachment.type)
+          ? "bg-[#d1443c]/10 text-[#d1443c]"
+          : "bg-surface-2 text-ink-muted",
       )}
     >
-      {isImage(attachment.type) ? <ImageIcon size={16} /> : <FileText size={16} />}
+      <FileIcon type={attachment.type} size={size * 0.45} />
     </span>
+  );
+}
+
+/**
+ * The preview panel. Images render inline, PDFs get the browser's own viewer,
+ * text files show their first lines, and everything else falls back to type,
+ * size and an open link — so the card is useful whatever was dropped.
+ */
+export function AttachmentPreview({ attachment }: { attachment: Attachment }) {
+  const url = useAttachmentUrl(attachment);
+  const [text, setText] = useState<string | null>(null);
+  const previewable = isImage(attachment.type) || isPdf(attachment.type);
+
+  useEffect(() => {
+    if (!url || !isText(attachment.type)) return;
+    let alive = true;
+    void fetch(url)
+      .then((r) => r.text())
+      .then((body) => alive && setText(body.slice(0, 800)));
+    return () => {
+      alive = false;
+    };
+  }, [url, attachment.type]);
+
+  return (
+    <div>
+      <div className="flex h-[190px] items-center justify-center border-b border-line bg-surface-2">
+        {!url && <Loader2 size={18} className="animate-spin text-ink-faint" />}
+
+        {url && isImage(attachment.type) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt={attachment.name} className="max-h-full max-w-full object-contain" />
+        )}
+
+        {url && isPdf(attachment.type) && (
+          <iframe
+            src={`${url}#toolbar=0&navpanes=0&view=FitH`}
+            title={attachment.name}
+            className="h-full w-full"
+          />
+        )}
+
+        {url && isText(attachment.type) && (
+          <pre className="h-full w-full overflow-hidden p-3 text-[10px] leading-relaxed whitespace-pre-wrap text-ink-muted">
+            {text ?? "…"}
+          </pre>
+        )}
+
+        {url && !previewable && !isText(attachment.type) && (
+          <div className="flex flex-col items-center gap-2 text-ink-faint">
+            <Thumb attachment={attachment} size={44} />
+            <span className="text-[11px]">No preview for this file type</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12px] font-medium text-ink">
+            {attachment.name}
+          </span>
+          <span className="block text-[11px] text-ink-faint">
+            {formatBytes(attachment.size)}
+          </span>
+        </span>
+        {url && (
+          <>
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              title="Open in a new tab"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface-2 hover:text-ink"
+            >
+              <ExternalLink size={14} />
+            </a>
+            <a
+              href={url}
+              download={attachment.name}
+              title="Download"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface-2 hover:text-ink"
+            >
+              <Download size={14} />
+            </a>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -67,24 +185,34 @@ export function AttachmentRow({
 
   return (
     <div className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-2 py-1.5">
-      <Thumb attachment={attachment} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-ink">
-          {attachment.name}
+      <HoverCard panel={<AttachmentPreview attachment={attachment} />} width={320}>
+        <Thumb attachment={attachment} />
+      </HoverCard>
+
+      <HoverCard
+        panel={<AttachmentPreview attachment={attachment} />}
+        width={320}
+        className="min-w-0 flex-1"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium text-ink">
+            {attachment.name}
+          </span>
+          <span className="block text-[11px] text-ink-faint">
+            {formatBytes(attachment.size)}
+            {isPdf(attachment.type) ? " · PDF" : ""}
+          </span>
         </span>
-        <span className="block text-[11px] text-ink-faint">
-          {formatBytes(attachment.size)}
-          {isPdf(attachment.type) ? " · PDF" : ""}
-        </span>
-      </span>
+      </HoverCard>
+
       {url && (
         <a
           href={url}
           download={attachment.name}
           target="_blank"
           rel="noreferrer"
-          title="Open or download"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface-2 hover:text-ink"
+          title="Download"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface-2 hover:text-ink"
         >
           <Download size={14} />
         </a>
@@ -94,7 +222,7 @@ export function AttachmentRow({
           type="button"
           onClick={onRemove}
           title="Remove"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface-2 hover:text-[#d1443c]"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface-2 hover:text-[#d1443c]"
         >
           <X size={14} />
         </button>
@@ -124,22 +252,45 @@ export function AttachmentList({
   );
 }
 
-/** The little paperclip + count shown on an event in the grid. */
+/** Paperclip on an event; hovering it previews the file without opening anything. */
 export function AttachmentBadge({
   count,
+  attachments,
   className,
 }: {
   count: number;
+  attachments?: Attachment[];
   className?: string;
 }) {
   if (count === 0) return null;
-  return (
+
+  const badge = (
     <span
       className={clsx("flex shrink-0 items-center gap-0.5 text-[10px] font-semibold", className)}
-      title={`${count} file${count === 1 ? "" : "s"}`}
     >
       <Paperclip size={10} />
       {count > 1 && count}
     </span>
+  );
+
+  if (!attachments?.length) return badge;
+
+  return (
+    <HoverCard
+      width={320}
+      panel={
+        attachments.length === 1 ? (
+          <AttachmentPreview attachment={attachments[0]} />
+        ) : (
+          <div className="max-h-[320px] space-y-1.5 overflow-auto p-2">
+            {attachments.map((a) => (
+              <AttachmentRow key={a.id} attachment={a} />
+            ))}
+          </div>
+        )
+      }
+    >
+      {badge}
+    </HoverCard>
   );
 }

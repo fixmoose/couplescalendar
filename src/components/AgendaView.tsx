@@ -2,12 +2,14 @@
 
 import clsx from "clsx";
 import { addDays, format, isToday, startOfDay } from "date-fns";
-import { CalendarX2, MapPin } from "lucide-react";
+import { CalendarX2 } from "lucide-react";
 import { useMemo } from "react";
 import { colorVar } from "@/lib/colors";
 import { occursOn, rangeLabel } from "@/lib/date";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
+import { AttachmentBadge } from "./Attachments";
+import { LocationLink } from "./SmartText";
 import { useEventColor } from "./EventPill";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import type { ViewHandlers } from "./view-types";
@@ -27,8 +29,12 @@ function Row({
   const { provenance, others, label } = useEventPeople(event);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !event.masked) handlers.onOpenEvent(event);
+      }}
       onClick={() => !event.masked && handlers.onOpenEvent(event)}
       title={event.masked ? label : `${event.title} — ${label}`}
       onContextMenu={(e) => handlers.onEventMenu(e, event)}
@@ -58,17 +64,22 @@ function Row({
         <ProvenanceIcon provenance={provenance} size={13} className="text-ink-faint" />
       )}
       {event.location && (
-        <span className="hidden items-center gap-1 text-[12px] text-ink-faint sm:flex">
-          <MapPin size={12} /> {event.location}
+        <span className="hidden max-w-[180px] text-[12px] sm:flex">
+          <LocationLink location={event.location} />
         </span>
       )}
       <span className="hidden w-28 shrink-0 truncate text-right text-[12px] text-ink-faint md:block">
         {calendar?.name}
       </span>
+      <AttachmentBadge
+        count={event.attachments?.length ?? 0}
+        attachments={event.attachments}
+        className="text-ink-faint"
+      />
       <span className="flex w-20 shrink-0 justify-end">
-        <PeopleStack people={others} size={20} max={3} />
+        <PeopleStack people={others} size={20} max={3} event={event} />
       </span>
-    </button>
+    </div>
   );
 }
 

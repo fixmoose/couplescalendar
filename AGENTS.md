@@ -12,8 +12,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Shared calendar app. Next.js 16 App Router, React 19, Tailwind 4, TypeScript.
 
-- **All data access goes through `useStore()` in `src/lib/store.tsx`.** It is the
-  seam Supabase will replace — components never touch storage directly.
+- **All data access goes through `useStore()` in `src/lib/store.tsx`**, which
+  calls `src/lib/db.ts`. Components never query Supabase directly.
+- Events are READ from the `cc_calendar_feed` view, never from `cc_events`:
+  the view applies busy masking, so the client is never sent details the
+  viewer is not entitled to. Writes go to the tables.
 - Tables in `supabase/schema.sql` use the `CC_` prefix and mirror `src/lib/types.ts`.
 - Colours: never hardcode hex in components. Set `--c` via `colorVar(key)` from
   `src/lib/colors.ts` and use the `.cc-dot` / `.cc-tint` / `.cc-solid` helpers so

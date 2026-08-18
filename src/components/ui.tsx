@@ -29,6 +29,22 @@ export function Avatar({
   size?: number;
   className?: string;
 }) {
+  if (person.avatarUrl) {
+    return (
+      // Google profile pictures are remote and unoptimised on purpose.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={person.avatarUrl}
+        alt={person.name}
+        title={person.name}
+        width={size}
+        height={size}
+        style={{ width: size, height: size }}
+        className={clsx("shrink-0 rounded-full object-cover select-none", className)}
+      />
+    );
+  }
+
   return (
     <span
       style={{ ...colorVar(person.avatarColor), width: size, height: size, fontSize: size * 0.42 }}

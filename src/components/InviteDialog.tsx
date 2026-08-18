@@ -35,7 +35,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
     setSending(true);
     setError(null);
 
-    const invites = store.createInvites(emails, groupId || undefined);
+    const invites = await store.createInvites(emails, groupId || undefined);
     if (!invites.length) {
       setSending(false);
       setError("Those people are already on your calendar or already invited.");

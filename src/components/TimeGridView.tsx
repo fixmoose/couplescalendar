@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { addMinutes, format, isSameDay, isToday, startOfDay } from "date-fns";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Paperclip } from "lucide-react";
+import { AlertTriangle, Paperclip } from "lucide-react";
 import { colorVar } from "@/lib/colors";
 import { dragHasFiles, filesFromDrag } from "@/lib/files";
 import {
@@ -19,6 +19,7 @@ import type { CalendarEvent } from "@/lib/types";
 import { EventPill, useEventColor } from "./EventPill";
 import { AttachmentBadge } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
+import { LocationLink } from "./SmartText";
 import { useFileDrop } from "./useFileDrop";
 import { Avatar } from "./ui";
 import type { ViewHandlers } from "./view-types";
@@ -89,6 +90,7 @@ function Block({
           ? "cc-busy border-dashed"
           : "cc-tint cc-tint-border cc-rail hover:z-20 hover:shadow-[var(--shadow-sm)]",
         selected && "z-20 ring-2 ring-[var(--c)]",
+        event.importance === "urgent" && !masked && "border-[#d1443c]/50",
         over && !masked && "z-40 ring-2 ring-brand ring-offset-1",
       )}
     >
@@ -102,21 +104,37 @@ function Block({
         >
           {event.title}
         </div>
-        <AttachmentBadge count={event.attachments?.length ?? 0} className="opacity-80" />
+        {event.importance === "urgent" && (
+          <span title="Marked urgent" className="shrink-0 text-[#d1443c]">
+            <AlertTriangle size={12} />
+          </span>
+        )}
+        <AttachmentBadge
+          count={event.attachments?.length ?? 0}
+          attachments={event.attachments}
+          className="opacity-80"
+        />
         {provenance !== "private" && (
           <ProvenanceIcon provenance={provenance} className="opacity-70" />
         )}
       </div>
 
       {!compact && (
-        <div className="truncate text-[11px] opacity-80 tabular-nums">
-          {timeLabel(start)} – {timeLabel(end)}
-          {event.location ? ` · ${event.location}` : ""}
+        <div className="truncate text-[11px] opacity-80">
+          <span className="tabular-nums">
+            {timeLabel(start)} – {timeLabel(end)}
+          </span>
+          {event.location && (
+            <>
+              {" · "}
+              <LocationLink location={event.location} showIcon={false} />
+            </>
+          )}
         </div>
       )}
 
       {!compact && others.length > 0 && (
-        <PeopleStack people={others} size={16} max={4} className="mt-1" />
+        <PeopleStack people={others} size={16} max={4} className="mt-1" event={event} />
       )}
 
       {editable && (
@@ -301,6 +319,7 @@ export function TimeGridView({
   const lane = (dayIndex: number) =>
     columns[dayIndex].theirs.length > 0 ? BUSY_LANE_START : 1;
 
+  const selectedSlot = handlers.selectedSlot;
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const nowMinutes = minutesFromMidnight(now);
   const single = days.length === 1;
@@ -363,6 +382,12 @@ export function TimeGridView({
                 <div
                   key={day.toISOString()}
                   onClick={() => {
+                    const s = startOfDay(day);
+                    const e = new Date(s);
+                    e.setHours(23, 59, 59, 999);
+                    handlers.onSelectSlot(s, e, true);
+                  }}
+                  onDoubleClick={() => {
                     const s = startOfDay(day);
                     const e = new Date(s);
                     e.setHours(23, 59, 59, 999);
@@ -456,6 +481,11 @@ export function TimeGridView({
                 }}
                 onClick={(e) => {
                   if (justDragged.current) return;
+                  const { minutes } = pointToTime(e.clientX, e.clientY);
+                  const from = Math.floor(minutes / 60) * 60;
+                  handlers.onSelectSlot(at(dayIndex, from), at(dayIndex, from + 60), false);
+                }}
+                onDoubleClick={(e) => {
                   const { minutes } = pointToTime(e.clientX, e.clientY);
                   const from = snap(minutes);
                   handlers.onCreate(at(dayIndex, from), at(dayIndex, from + 60), false);
@@ -585,6 +615,26 @@ export function TimeGridView({
                   >
                     {timeLabel(at(dayIndex, drag.from))} – {timeLabel(at(dayIndex, drag.to))}
                   </div>
+                )}
+
+                {selectedSlot && isSameDay(new Date(selectedSlot.start), day) && (
+                  <div
+                    className="pointer-events-none absolute inset-x-[3px] z-10 rounded-[7px] border-2 border-brand/60 bg-brand-soft/60"
+                    style={{
+                      top:
+                        (minutesFromMidnight(new Date(selectedSlot.start)) /
+                          MINUTES_PER_DAY) *
+                        DAY_H,
+                      height: Math.max(
+                        18,
+                        ((new Date(selectedSlot.end).getTime() -
+                          new Date(selectedSlot.start).getTime()) /
+                          60000 /
+                          MINUTES_PER_DAY) *
+                          DAY_H,
+                      ),
+                    }}
+                  />
                 )}
 
                 {dropHint?.dayIndex === dayIndex && (

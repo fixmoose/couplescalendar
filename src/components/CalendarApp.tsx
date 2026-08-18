@@ -10,6 +10,7 @@ import {
   startOfMonth,
 } from "date-fns";
 import {
+  AlertTriangle,
   CalendarDays,
   CalendarPlus,
   Copy,
@@ -27,7 +28,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { colorVar, COLOR_KEYS, COLORS } from "@/lib/colors";
 import { timeLabel, weekDays } from "@/lib/date";
-import { storeFiles, titleFromFileName } from "@/lib/files";
+import { uploadAttachment } from "@/lib/db";
+import { MAX_FILE_BYTES, formatBytes, titleFromFileName } from "@/lib/files";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent, CalendarView, EventDraft, Calendar, Group } from "@/lib/types";
 import { AgendaView } from "./AgendaView";
@@ -41,7 +43,6 @@ import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
 import { TimeGridView } from "./TimeGridView";
 import { TopBar } from "./TopBar";
-import { PreviewBanner } from "./ViewAsMenu";
 import { Avatar, Toast } from "./ui";
 import type { ViewHandlers } from "./view-types";
 
@@ -78,6 +79,10 @@ export function CalendarApp() {
   const [notice, setNotice] = useState<string | null>(null);
   const [person, setPerson] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+  /** The slot a plain left click picked — what "New event" then uses. */
+  const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
+    null,
+  );
 
   const events = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -240,6 +245,18 @@ export function CalendarApp() {
                 ],
         },
         {
+          label:
+            event.importance === "urgent" ? "Remove urgent flag" : "Mark as urgent",
+          icon: <AlertTriangle size={13} />,
+          checked: event.importance === "urgent",
+          disabled: !editable,
+          onSelect: () =>
+            store.setEventImportance(
+              event.id,
+              event.importance === "urgent" ? "normal" : "urgent",
+            ),
+        },
+        {
           kind: "submenu",
           label: "Who else can see it",
           icon: <Eye size={13} />,
@@ -367,6 +384,27 @@ export function CalendarApp() {
     [openEventDialog],
   );
 
+  /** Uploads to Storage, reporting anything too large or rejected. */
+  const upload = useCallback(
+    async (files: File[]) => {
+      const stored = [];
+      const failed: string[] = [];
+      for (const file of files) {
+        if (file.size > MAX_FILE_BYTES) {
+          failed.push(`${file.name} (over ${formatBytes(MAX_FILE_BYTES)})`);
+          continue;
+        }
+        try {
+          stored.push(await uploadAttachment(store.supabase, file, store.currentUserId));
+        } catch {
+          failed.push(file.name);
+        }
+      }
+      return { stored, failed };
+    },
+    [store.supabase, store.currentUserId],
+  );
+
   /**
    * Drop a file on a time slot: store it, then open the editor pre-filled with
    * that slot and the file attached, so times, notes and sharing get set in one
@@ -375,9 +413,9 @@ export function CalendarApp() {
   const dropFiles = useCallback(
     async (files: File[], start: Date, end: Date, allDay: boolean) => {
       setUploading(files.length);
-      const { stored, failed } = await storeFiles(files, store.currentUserId);
+      const { stored, failed } = await upload(files);
       setUploading(0);
-      if (failed.length) setNotice(`Too large to attach: ${failed.join(", ")}`);
+      if (failed.length) setNotice(`Could not attach: ${failed.join(", ")}`);
       if (!stored.length) return;
 
       setDialog({
@@ -395,7 +433,7 @@ export function CalendarApp() {
         },
       });
     },
-    [defaultCalendarId, store.currentUserId],
+    [defaultCalendarId, upload],
   );
 
   const dropFilesOnEvent = useCallback(
@@ -405,9 +443,9 @@ export function CalendarApp() {
         return;
       }
       setUploading(files.length);
-      const { stored, failed } = await storeFiles(files, store.currentUserId);
+      const { stored, failed } = await upload(files);
       setUploading(0);
-      if (failed.length) setNotice(`Too large to attach: ${failed.join(", ")}`);
+      if (failed.length) setNotice(`Could not attach: ${failed.join(", ")}`);
       if (stored.length) {
         store.attachToEvent(event.id, stored);
         setNotice(
@@ -415,12 +453,17 @@ export function CalendarApp() {
         );
       }
     },
-    [store],
+    [store, upload],
   );
 
   const handlers: ViewHandlers = useMemo(
     () => ({
       selectedId,
+      selectedSlot: slot,
+      onSelectSlot: (start, end, allDay) => {
+        setSelectedId(null);
+        setSlot({ start: start.toISOString(), end: end.toISOString(), allDay });
+      },
       onDropFiles: dropFiles,
       onDropFilesOnEvent: dropFilesOnEvent,
       onOpenEvent: editEvent,
@@ -439,9 +482,21 @@ export function CalendarApp() {
       eventMenu,
       openEventDialog,
       selectedId,
+      slot,
       slotMenu,
     ],
   );
+
+  /** New event on the picked slot, or at 9am on the day in view. */
+  const newEventHere = useCallback(() => {
+    if (slot) {
+      openEventDialog(new Date(slot.start), new Date(slot.end), slot.allDay);
+      return;
+    }
+    const start = new Date(date);
+    start.setHours(9, 0, 0, 0);
+    openEventDialog(start, addHours(start, 1), false);
+  }, [date, openEventDialog, slot]);
 
   const step = useCallback(
     (direction: 1 | -1) =>
@@ -480,19 +535,19 @@ export function CalendarApp() {
       else if (key === "w" || key === "2") setView("week");
       else if (key === "m" || key === "3") setView("month");
       else if (key === "a" || key === "4") setView("agenda");
-      else if (key === "n" || key === "c") {
-        const start = new Date(date);
-        start.setHours(9, 0, 0, 0);
-        openEventDialog(start, addHours(start, 1), false);
-      } else if (key === "arrowleft" || key === "k") step(-1);
+      else if (key === "n" || key === "c") newEventHere();
+      else if (key === "arrowleft" || key === "k") step(-1);
       else if (key === "arrowright" || key === "j") step(1);
-      else if (key === "escape") setSelectedId(null);
+      else if (key === "escape") {
+        setSelectedId(null);
+        setSlot(null);
+      }
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [date, dialog, openEventDialog, step]);
+  }, [dialog, newEventHere, setDate, step]);
 
   if (!store.ready) {
     return (
@@ -507,11 +562,7 @@ export function CalendarApp() {
       <Sidebar
         selected={date}
         onSelectDate={(d) => setDate(d)}
-        onNewEvent={() => {
-          const start = new Date(date);
-          start.setHours(9, 0, 0, 0);
-          openEventDialog(start, addHours(start, 1), false);
-        }}
+        onNewEvent={() => newEventHere()}
         onNewCalendar={(groupId) => setDialog({ kind: "calendar", groupId })}
         onEditCalendar={(calendar) => setDialog({ kind: "calendar", calendar })}
         onNewGroup={() => setDialog({ kind: "group" })}
@@ -522,7 +573,6 @@ export function CalendarApp() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <PreviewBanner />
         <TopBar
           date={date}
           view={view}
@@ -568,10 +618,13 @@ export function CalendarApp() {
         message={
           uploading > 0
             ? `Uploading ${uploading} file${uploading === 1 ? "" : "s"}…`
-            : notice
+            : (store.error ?? notice)
         }
         busy={uploading > 0}
-        onDismiss={() => setNotice(null)}
+        onDismiss={() => {
+          setNotice(null);
+          store.clearError();
+        }}
       />
 
       {dialog?.kind === "event" && (

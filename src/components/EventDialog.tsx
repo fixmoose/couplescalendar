@@ -5,13 +5,15 @@ import { format } from "date-fns";
 import { Check, CopyPlus, Paperclip, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { colorVar } from "@/lib/colors";
-import { storeFiles } from "@/lib/files";
+import { uploadAttachment } from "@/lib/db";
+import { MAX_FILE_BYTES, formatBytes } from "@/lib/files";
 import { useStore } from "@/lib/store";
 import type { Attachment, CalendarEvent, EventDraft } from "@/lib/types";
 import { AttachmentList } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
 import { PrivacyPicker } from "./PrivacyPicker";
+import { LocationLink, SmartText } from "./SmartText";
 import { Avatar, Button, Field, Modal, controlClass, inputClass } from "./ui";
 
 const dateValue = (d: Date) => format(d, "yyyy-MM-dd");
@@ -190,9 +192,14 @@ export function EventDialog({
           <input
             value={form.location}
             onChange={(e) => set("location", e.target.value)}
-            placeholder="Add a place or a link"
+            placeholder="Add an address or a link"
             className={inputClass}
           />
+          {form.location.trim() && (
+            <p className="mt-1.5 text-[12px]">
+              <LocationLink location={form.location.trim()} />
+            </p>
+          )}
         </Field>
 
         <Field label="Notes">
@@ -350,12 +357,15 @@ function SharedEventView({
 
         {event.location && (
           <Field label="Location">
-            <p className="text-[13px] text-ink">{event.location}</p>
+            <LocationLink location={event.location} className="text-[13px]" />
           </Field>
         )}
         {event.notes && (
           <Field label="Notes">
-            <p className="text-[13px] whitespace-pre-wrap text-ink">{event.notes}</p>
+            <SmartText
+              text={event.notes}
+              className="text-[13px] whitespace-pre-wrap text-ink"
+            />
           </Field>
         )}
         {event.attachments && event.attachments.length > 0 && (
@@ -391,6 +401,7 @@ function FileDropField({
   onAdd: (attachments: Attachment[]) => void;
   onRemove: (id: string) => void;
 }) {
+  const { supabase } = useStore();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -399,9 +410,21 @@ function FileDropField({
     if (!files.length) return;
     setBusy(true);
     setError(null);
-    const { stored, failed } = await storeFiles(files, uploadedBy);
+    const stored: Attachment[] = [];
+    const failed: string[] = [];
+    for (const file of files) {
+      if (file.size > MAX_FILE_BYTES) {
+        failed.push(`${file.name} (over ${formatBytes(MAX_FILE_BYTES)})`);
+        continue;
+      }
+      try {
+        stored.push(await uploadAttachment(supabase, file, uploadedBy));
+      } catch {
+        failed.push(file.name);
+      }
+    }
     setBusy(false);
-    if (failed.length) setError(`Too large: ${failed.join(", ")}`);
+    if (failed.length) setError(`Could not attach: ${failed.join(", ")}`);
     if (stored.length) onAdd(stored);
   };
 

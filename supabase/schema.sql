@@ -27,8 +27,11 @@ create table if not exists cc_profiles (
   email        text not null,
   display_name text not null,
   avatar_color text not null default 'orange',
+  avatar_url   text,
   created_at   timestamptz not null default now()
 );
+
+alter table cc_profiles add column if not exists avatar_url text;
 
 create table if not exists cc_groups (
   id         uuid primary key default gen_random_uuid(),
@@ -81,6 +84,9 @@ create table if not exists cc_events (
   color       text,
   -- Overrides the calendar's privacy for this one event; null = inherit.
   privacy     text check (privacy in ('details', 'busy', 'hidden')),
+  -- Flagged as needing attention; shown to everyone who can see the event.
+  importance  text not null default 'normal'
+              check (importance in ('normal', 'urgent')),
   created_by  uuid not null references cc_profiles (id) on delete cascade,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
@@ -238,14 +244,30 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  palette text[] := array['orange','teal','violet','rose','blue','green','amber'];
 begin
-  insert into cc_profiles (id, email, display_name)
+  insert into cc_profiles (id, email, display_name, avatar_url, avatar_color)
   values (
     new.id,
     new.email,
-    coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1))
+    coalesce(
+      nullif(new.raw_user_meta_data ->> 'full_name', ''),
+      nullif(new.raw_user_meta_data ->> 'name', ''),
+      split_part(new.email, '@', 1)
+    ),
+    coalesce(
+      new.raw_user_meta_data ->> 'avatar_url',
+      new.raw_user_meta_data ->> 'picture'
+    ),
+    palette[1 + (abs(hashtext(new.id::text)) % array_length(palette, 1))]
   )
   on conflict (id) do nothing;
+
+  -- Nobody should land on a calendar they cannot write to.
+  insert into cc_calendars (name, kind, color, owner_id, privacy)
+  values ('My calendar', 'personal', 'orange', new.id, 'busy');
+
   return new;
 end;
 $$;
@@ -254,6 +276,39 @@ drop trigger if exists cc_on_auth_user_created on auth.users;
 create trigger cc_on_auth_user_created
   after insert on auth.users
   for each row execute function cc_handle_new_user();
+
+-- Redeems an invitation: joins the group it was sent for and marks it used.
+-- Security definer because the invitee cannot see the inviter's group yet.
+create or replace function cc_accept_invitation(p_token text)
+returns table (group_id uuid, invited_by uuid)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  invite cc_invitations%rowtype;
+begin
+  select * into invite from cc_invitations
+  where token = p_token and status <> 'accepted'
+  limit 1;
+
+  if invite.id is null then
+    raise exception 'This invitation is no longer valid.';
+  end if;
+
+  if invite.group_id is not null then
+    insert into cc_group_members (group_id, user_id, role)
+    values (invite.group_id, auth.uid(), 'member')
+    on conflict do nothing;
+  end if;
+
+  update cc_invitations
+    set status = 'accepted', accepted_at = now(), accepted_by = auth.uid()
+    where id = invite.id;
+
+  return query select invite.group_id, invite.invited_by;
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Row level security
@@ -419,6 +474,8 @@ select
   e.ends_at,
   e.all_day,
   case when acc.level = 'full' then e.color else 'slate' end       as color,
+  case when acc.level = 'full' then e.privacy end                  as privacy,
+  case when acc.level = 'full' then e.importance else 'normal' end as importance,
   case when acc.level = 'full' then e.created_by else c.owner_id end as created_by,
   (acc.level = 'busy')                                             as masked
 from cc_events e
@@ -461,25 +518,34 @@ on conflict (id) do update
 drop policy if exists cc_attachments_object_read on storage.objects;
 create policy cc_attachments_object_read on storage.objects for select using (
   bucket_id = 'cc_attachments'
-  and cc_event_access((split_part(name, '/', 1))::uuid, auth.uid()) = 'full'
+  and (
+    owner = auth.uid()
+    or exists (
+      select 1 from cc_attachments a
+      where a.storage_path = storage.objects.name
+        and cc_event_access(a.event_id, auth.uid()) = 'full'
+    )
+  )
 );
 
+-- Uploads land under <user id>/…, which is all we can check before the file is
+-- attached to an event.
 drop policy if exists cc_attachments_object_write on storage.objects;
 create policy cc_attachments_object_write on storage.objects for insert with check (
   bucket_id = 'cc_attachments'
-  and exists (
-    select 1 from cc_events e
-    where e.id = (split_part(name, '/', 1))::uuid
-      and cc_can_write_calendar(e.calendar_id, auth.uid())
-  )
+  and split_part(name, '/', 1) = auth.uid()::text
 );
 
 drop policy if exists cc_attachments_object_delete on storage.objects;
 create policy cc_attachments_object_delete on storage.objects for delete using (
   bucket_id = 'cc_attachments'
-  and exists (
-    select 1 from cc_events e
-    where e.id = (split_part(name, '/', 1))::uuid
-      and cc_can_write_calendar(e.calendar_id, auth.uid())
+  and (
+    owner = auth.uid()
+    or exists (
+      select 1 from cc_attachments a
+      join cc_events e on e.id = a.event_id
+      where a.storage_path = storage.objects.name
+        and cc_can_write_calendar(e.calendar_id, auth.uid())
+    )
   )
 );

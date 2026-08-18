@@ -1,277 +1,272 @@
 "use client";
 
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { accessFor, canEdit, maskEvent, participantIds } from "./access";
-import { ME, SEED_CALENDARS, SEED_GROUPS, SEED_PEOPLE, seedEvents } from "./seed";
+import { canEdit, participantIds } from "./access";
+import * as db from "./db";
+import { createClient } from "./supabase/client";
 import type {
   Attachment,
   Calendar,
   CalendarEvent,
   ColorKey,
   EventDraft,
-  Group,
+  Importance,
   Invite,
   Person,
   Privacy,
 } from "./types";
 
 /**
- * Single source of truth for the calendar.
+ * Single source of truth for the calendar, backed by Supabase.
  *
- * Phase 1 keeps everything in the browser (localStorage) so the UI can be
- * tuned without a backend. The action surface below is intentionally the one
- * we want against Supabase — replacing the bodies with `CC_*` queries is the
- * whole of the migration.
+ * Reads come from `cc_calendar_feed`, which has already masked anything the
+ * viewer may only see as busy — the client never receives details it is not
+ * entitled to. Writes are optimistic: local state changes immediately so
+ * dragging stays smooth, the query runs behind it, and a failure reloads the
+ * truth rather than leaving the UI lying about what was saved.
+ *
+ * Which calendars are ticked and whose busy times are hidden are per-device
+ * view preferences, so they live in localStorage rather than the database.
  */
 
-const STORAGE_KEY = "cc.state.v3"; // v3: attachments + invites
+const VIEW_PREFS_KEY = "cc.view.v1";
 
-/** Avatar colours handed out to newly invited people, in order. */
-const COLOR_CYCLE: ColorKey[] = ["violet", "teal", "blue", "amber", "green", "rose"];
-
-interface Data {
-  people: Person[];
-  groups: Group[];
-  calendars: Calendar[];
-  events: CalendarEvent[];
-  /** Whose busy blocks the viewer has switched off in the sidebar. */
+interface ViewPrefs {
+  hiddenCalendars: string[];
   busyHidden: string[];
-  /** People invited by email who have not signed up yet. */
-  invites: Invite[];
-  /**
-   * Phase 1 has no auth, so "who am I" is state. The Preview-as control in the
-   * top bar flips it, which is how you check what your group actually sees.
-   */
-  viewerId: string;
+}
+
+function readPrefs(userId: string): ViewPrefs {
+  try {
+    const raw = window.localStorage.getItem(`${VIEW_PREFS_KEY}.${userId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<ViewPrefs>;
+      return {
+        hiddenCalendars: parsed.hiddenCalendars ?? [],
+        busyHidden: parsed.busyHidden ?? [],
+      };
+    }
+  } catch {
+    /* fall through to defaults */
+  }
+  return { hiddenCalendars: [], busyHidden: [] };
+}
+
+function writePrefs(userId: string, prefs: ViewPrefs) {
+  try {
+    window.localStorage.setItem(`${VIEW_PREFS_KEY}.${userId}`, JSON.stringify(prefs));
+  } catch {
+    /* private mode — preferences just will not persist */
+  }
+}
+
+interface Data extends db.Workspace {
+  busyHidden: string[];
 }
 
 interface StoreValue extends Data {
   currentUserId: string;
   me: Person;
   ready: boolean;
-  /** True while looking at the calendar through someone else's eyes. */
-  previewing: boolean;
-  viewAs: (personId: string) => void;
+  /** Last write error, surfaced by the app shell. */
+  error: string | null;
+  clearError: () => void;
+  refresh: () => Promise<void>;
   calendarById: (id: string) => Calendar | undefined;
   personById: (id: string) => Person | undefined;
-  /** The viewer's own calendars, then the group ones they belong to. */
   myCalendars: Calendar[];
   sharedCalendars: Calendar[];
-  /** Everyone the viewer shares at least one group with. */
   contacts: Person[];
   togglePersonBusy: (personId: string) => void;
-  /**
-   * What the viewer is allowed to see, already filtered and — where they only
-   * have busy access — stripped of every detail. Views never see more.
-   */
   visibleEvents: CalendarEvent[];
-  /** Everyone who can see this event in full. */
   participantsOf: (event: CalendarEvent) => Person[];
   canEditEvent: (event: CalendarEvent) => boolean;
-  /** People who have sent something my way, with how many items. */
   sharedWithMe: { person: Person; count: number }[];
-  /** People I have sent something to. */
   iShareWith: { person: Person; count: number }[];
-  /** The two directions of traffic between me and one person. */
   itemsWith: (personId: string) => { fromThem: CalendarEvent[]; toThem: CalendarEvent[] };
-  attachToEvent: (eventId: string, attachments: Attachment[]) => void;
-  removeAttachment: (eventId: string, attachmentId: string) => void;
-  createInvites: (emails: string[], groupId?: string) => Invite[];
-  updateInvite: (id: string, patch: Partial<Invite>) => void;
-  cancelInvite: (id: string) => void;
-  setCalendarPrivacy: (id: string, privacy: Privacy) => void;
-  setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
-  createEvent: (draft: EventDraft) => CalendarEvent;
+  createEvent: (draft: EventDraft) => void;
   updateEvent: (draft: EventDraft & { id: string }) => void;
-  /** Drag / resize helper — keeps everything else on the event intact. */
   rescheduleEvent: (id: string, start: Date, end: Date, allDay?: boolean) => void;
   deleteEvent: (id: string) => void;
   duplicateEvent: (id: string) => void;
   toggleEventShare: (eventId: string, personId: string) => void;
   moveEventToCalendar: (eventId: string, calendarId: string) => void;
   setEventColor: (eventId: string, color: ColorKey | undefined) => void;
+  setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
+  setEventImportance: (eventId: string, importance: Importance) => void;
+  attachToEvent: (eventId: string, attachments: Attachment[]) => void;
+  removeAttachment: (eventId: string, attachmentId: string) => void;
   toggleCalendar: (id: string) => void;
   showOnlyCalendar: (id: string) => void;
-  setAllCalendars: (visible: boolean) => void;
   createCalendar: (input: {
     name: string;
     color: ColorKey;
     groupId?: string;
     privacy?: Privacy;
-  }) => Calendar;
+  }) => void;
   renameCalendar: (id: string, name: string) => void;
   setCalendarColor: (id: string, color: ColorKey) => void;
-  /** Attach a calendar to a group (or detach it back to personal). */
+  setCalendarPrivacy: (id: string, privacy: Privacy) => void;
   updateCalendarGroup: (id: string, groupId: string | undefined) => void;
   deleteCalendar: (id: string) => void;
-  /** Stand-in for a real invite: adds someone we can share with. */
-  invitePerson: (email: string, name?: string) => Person;
-  createGroup: (name: string, memberIds: string[]) => Group;
+  createGroup: (name: string, memberIds: string[], withCalendar?: boolean) => void;
   setGroupMembers: (groupId: string, memberIds: string[]) => void;
   renameGroup: (groupId: string, name: string) => void;
   deleteGroup: (groupId: string) => void;
-  resetDemoData: () => void;
+  createInvites: (emails: string[], groupId?: string) => Promise<Invite[]>;
+  updateInvite: (id: string, patch: Partial<Invite>) => void;
+  cancelInvite: (id: string) => void;
+  /** Exposed so attachment previews can mint signed URLs. */
+  supabase: SupabaseClient;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-function freshData(): Data {
-  return {
-    people: SEED_PEOPLE,
-    groups: SEED_GROUPS,
-    calendars: SEED_CALENDARS,
-    events: seedEvents(new Date()),
-    busyHidden: [],
-    invites: [],
-    viewerId: ME,
-  };
-}
-
-function newId(prefix: string) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function draftToEvent(
-  draft: EventDraft,
-  createdBy: string,
-  base: Partial<CalendarEvent> = {},
-): CalendarEvent {
-  return {
-    id: draft.id ?? newId("e"),
-    calendarId: draft.calendarId,
-    title: draft.title.trim() || "(no title)",
-    notes: draft.notes.trim() || undefined,
-    location: draft.location.trim() || undefined,
-    start: draft.start.toISOString(),
-    end: draft.end.toISOString(),
-    allDay: draft.allDay,
-    createdBy,
-    sharedWith: draft.sharedWith,
-    privacy: draft.privacy,
-    attachments: draft.attachments,
-    ...base,
-  };
-}
+const EMPTY: Data = {
+  people: [],
+  groups: [],
+  calendars: [],
+  events: [],
+  invites: [],
+  busyHidden: [],
+};
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [user, setUser] = useState<User | null>(null);
   const [data, setData] = useState<Data | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const prefs = useRef<ViewPrefs>({ hiddenCalendars: [], busyHidden: [] });
 
-  // Hydrate on the client only: localStorage is an external system, and seed
-  // data is relative to "today", which the server cannot know without causing
-  // a hydration mismatch.
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Data;
-        if (parsed?.calendars?.length) {
-          setData(parsed);
-          return;
-        }
-      }
-    } catch {
-      /* corrupted payload — fall through to a fresh seed */
-    }
-    setData(freshData());
-  }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  const load = useCallback(
+    async (userId: string) => {
+      prefs.current = readPrefs(userId);
+      const workspace = await db.loadWorkspace(
+        supabase,
+        new Set(prefs.current.hiddenCalendars),
+      );
+      setData({ ...workspace, busyHidden: prefs.current.busyHidden });
+    },
+    [supabase],
+  );
 
   useEffect(() => {
-    if (!data) return;
+    let alive = true;
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!alive || !user) return;
+      setUser(user);
+      load(user.id).catch((e) => {
+        setError(describe(e));
+        setData(EMPTY);
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [supabase, load]);
+
+  const refresh = useCallback(async () => {
+    if (!user) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      /* quota or private mode — the UI keeps working in memory */
+      await load(user.id);
+    } catch (e) {
+      setError(describe(e));
     }
-  }, [data]);
+  }, [load, user]);
 
-  const patch = useCallback((fn: (d: Data) => Data) => {
-    setData((current) => (current ? fn(current) : current));
-  }, []);
+  /**
+   * Applies the optimistic change, then runs the write. On failure the local
+   * guess is discarded in favour of whatever the database actually holds.
+   */
+  const write = useCallback(
+    (optimistic: (d: Data) => Data, query: () => Promise<unknown>) => {
+      setData((current) => (current ? optimistic(current) : current));
+      query().catch((e) => {
+        setError(describe(e));
+        void refresh();
+      });
+    },
+    [refresh],
+  );
 
-  const mapEvents = useCallback(
-    (fn: (e: CalendarEvent) => CalendarEvent) =>
-      patch((d) => ({ ...d, events: d.events.map(fn) })),
-    [patch],
+  const savePrefs = useCallback(
+    (next: Partial<ViewPrefs>) => {
+      if (!user) return;
+      prefs.current = { ...prefs.current, ...next };
+      writePrefs(user.id, prefs.current);
+    },
+    [user],
   );
 
   const value = useMemo<StoreValue>(() => {
-    const d = data ?? {
-      people: [],
-      groups: [],
-      calendars: [],
-      events: [],
-      busyHidden: [],
-      invites: [],
-      viewerId: ME,
-    };
-    const viewerId = d.viewerId;
+    const d = data ?? EMPTY;
+    const userId = user?.id ?? "";
+    const mapEvents =
+      (fn: (e: CalendarEvent) => CalendarEvent) =>
+      (s: Data): Data => ({ ...s, events: s.events.map(fn) });
 
     const calendarById = (id: string) => d.calendars.find((c) => c.id === id);
     const personById = (id: string) => d.people.find((p) => p.id === id);
 
     const myCalendars = d.calendars.filter(
-      (c) => c.kind === "personal" && c.ownerId === viewerId,
+      (c) => c.kind === "personal" && c.ownerId === userId,
     );
-    const sharedCalendars = d.calendars.filter(
-      (c) =>
-        c.kind === "shared" &&
-        (c.ownerId === viewerId ||
-          d.groups.some((g) => g.id === c.groupId && g.memberIds.includes(viewerId))),
-    );
+    const sharedCalendars = d.calendars.filter((c) => c.kind === "shared");
     const mine = new Set([...myCalendars, ...sharedCalendars].map((c) => c.id));
     const busyHidden = new Set(d.busyHidden);
+    const contacts = d.people.filter((p) => p.id !== userId);
 
-    const contacts = d.people.filter(
-      (p) =>
-        p.id !== viewerId &&
-        d.groups.some(
-          (g) => g.memberIds.includes(viewerId) && g.memberIds.includes(p.id),
-        ),
-    );
-
-    // One pass decides, per event, whether the viewer gets the whole thing, a
-    // grey block, or nothing at all.
-    const visibleEvents: CalendarEvent[] = [];
-    for (const event of d.events) {
+    // The feed already decided what may be seen; this applies only the
+    // viewer's own show/hide switches.
+    const visibleEvents = d.events.filter((event) => {
+      if (event.masked) return !busyHidden.has(event.createdBy);
       const calendar = calendarById(event.calendarId);
-      const access = accessFor(event, calendar, viewerId, d.groups);
-      if (access === "none" || !calendar) continue;
+      if (calendar && mine.has(calendar.id)) return calendar.visible;
+      if (event.sharedWith.includes(userId)) return true;
+      return !busyHidden.has(event.createdBy);
+    });
 
-      if (access === "busy") {
-        if (busyHidden.has(calendar.ownerId)) continue;
-        visibleEvents.push(maskEvent(event, calendar.ownerId));
-        continue;
-      }
-      // Own and group calendars obey the sidebar checkboxes. Other people's
-      // calendars obey their People toggle — except an event shared with me
-      // personally, which always comes through.
-      if (mine.has(calendar.id)) {
-        if (!calendar.visible) continue;
-      } else if (
-        busyHidden.has(calendar.ownerId) &&
-        !event.sharedWith.includes(viewerId)
-      ) {
-        continue;
-      }
-      visibleEvents.push(event);
-    }
+    const me: Person =
+      d.people.find((p) => p.id === userId) ??
+      ({
+        id: userId,
+        name:
+          (user?.user_metadata?.full_name as string) ??
+          user?.email?.split("@")[0] ??
+          "You",
+        email: user?.email ?? "",
+        avatarColor: "orange",
+        avatarUrl: user?.user_metadata?.avatar_url as string | undefined,
+      } satisfies Person);
+
+    /** Does this event reach that person at all? */
+    const reaches = (event: CalendarEvent, personId: string) => {
+      if (event.sharedWith.includes(personId)) return true;
+      const calendar = calendarById(event.calendarId);
+      if (calendar?.kind !== "shared") return false;
+      const group = d.groups.find((g) => g.id === calendar.groupId);
+      return Boolean(group?.memberIds.includes(personId));
+    };
 
     return {
       ...d,
-      currentUserId: viewerId,
-      me: d.people.find((p) => p.id === viewerId) ?? SEED_PEOPLE[0],
-      previewing: viewerId !== ME,
+      supabase,
+      currentUserId: userId,
+      me,
       ready: data !== null,
+      error,
+      clearError: () => setError(null),
+      refresh,
       calendarById,
       personById,
       myCalendars,
@@ -279,24 +274,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       contacts,
       visibleEvents,
 
-      participantsOf: (event) => {
-        const ids = participantIds(event, calendarById(event.calendarId), d.groups);
-        return ids
+      participantsOf: (event) =>
+        participantIds(event, calendarById(event.calendarId), d.groups)
           .map((id) => d.people.find((p) => p.id === id))
-          .filter((p) => p !== undefined);
-      },
+          .filter((p) => p !== undefined),
 
       canEditEvent: (event) =>
-        canEdit(calendarById(event.calendarId), viewerId, d.groups),
+        !event.masked && canEdit(calendarById(event.calendarId), userId, d.groups),
 
       sharedWithMe: contacts
         .map((person) => ({
           person,
-          count: d.events.filter(
-            (e) =>
-              e.createdBy === person.id &&
-              accessFor(e, calendarById(e.calendarId), viewerId, d.groups) === "full",
-          ).length,
+          count: d.events.filter((e) => !e.masked && e.createdBy === person.id).length,
         }))
         .filter((row) => row.count > 0),
 
@@ -304,280 +293,415 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .map((person) => ({
           person,
           count: d.events.filter(
-            (e) =>
-              e.createdBy === viewerId &&
-              accessFor(e, calendarById(e.calendarId), person.id, d.groups) === "full",
+            (e) => !e.masked && e.createdBy === userId && reaches(e, person.id),
           ).length,
         }))
         .filter((row) => row.count > 0),
 
       itemsWith: (personId) => ({
-        fromThem: d.events.filter(
-          (e) =>
-            e.createdBy === personId &&
-            accessFor(e, calendarById(e.calendarId), viewerId, d.groups) === "full",
-        ),
+        fromThem: d.events.filter((e) => !e.masked && e.createdBy === personId),
         toThem: d.events.filter(
-          (e) =>
-            e.createdBy === viewerId &&
-            accessFor(e, calendarById(e.calendarId), personId, d.groups) === "full",
+          (e) => !e.masked && e.createdBy === userId && reaches(e, personId),
         ),
       }),
 
-      attachToEvent: (eventId, attachments) =>
-        mapEvents((e) =>
-          e.id === eventId
-            ? { ...e, attachments: [...(e.attachments ?? []), ...attachments] }
-            : e,
-        ),
+      /* ---------------- events ---------------- */
 
-      removeAttachment: (eventId, attachmentId) =>
-        mapEvents((e) =>
-          e.id === eventId
-            ? {
-                ...e,
-                attachments: (e.attachments ?? []).filter((a) => a.id !== attachmentId),
-              }
-            : e,
-        ),
-
-      createInvites: (emails, groupId) => {
-        const existing = new Set(
-          d.people.map((p) => p.email.toLowerCase()).concat(
-            d.invites
-              .filter((i) => i.status !== "failed")
-              .map((i) => i.email.toLowerCase()),
-          ),
-        );
-        const invites: Invite[] = emails
-          .map((email) => email.trim())
-          .filter((email) => email.includes("@") && !existing.has(email.toLowerCase()))
-          .map((email) => ({
-            id: newId("i"),
-            email,
-            invitedBy: viewerId,
-            groupId,
-            status: "pending" as const,
-            createdAt: new Date().toISOString(),
-            token: `${newId("t")}${Math.random().toString(36).slice(2, 10)}`,
-          }));
-        if (invites.length) {
-          patch((s) => ({ ...s, invites: [...s.invites, ...invites] }));
-        }
-        return invites;
-      },
-
-      updateInvite: (id, update) =>
-        patch((s) => ({
-          ...s,
-          invites: s.invites.map((i) => (i.id === id ? { ...i, ...update } : i)),
-        })),
-
-      cancelInvite: (id) =>
-        patch((s) => ({ ...s, invites: s.invites.filter((i) => i.id !== id) })),
-
-      viewAs: (personId) => patch((s) => ({ ...s, viewerId: personId })),
-
-      togglePersonBusy: (personId) =>
-        patch((s) => ({
-          ...s,
-          busyHidden: s.busyHidden.includes(personId)
-            ? s.busyHidden.filter((id) => id !== personId)
-            : [...s.busyHidden, personId],
-        })),
-
-      setCalendarPrivacy: (id, privacy) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) => (c.id === id ? { ...c, privacy } : c)),
-        })),
-
-      setEventPrivacy: (eventId, privacy) =>
-        mapEvents((e) => (e.id === eventId ? { ...e, privacy } : e)),
-
-      createEvent: (draft) => {
-        const event = draftToEvent(draft, viewerId);
-        patch((s) => ({ ...s, events: [...s.events, event] }));
-        return event;
-      },
-
-      updateEvent: (draft) =>
-        mapEvents((e) =>
-          e.id === draft.id
-            ? draftToEvent(draft, e.createdBy, { color: e.color })
-            : e,
-        ),
-
-      rescheduleEvent: (id, start, end, allDay) =>
-        mapEvents((e) =>
-          e.id === id
-            ? {
-                ...e,
-                start: start.toISOString(),
-                end: end.toISOString(),
-                allDay: allDay ?? e.allDay,
-              }
-            : e,
-        ),
-
-      deleteEvent: (id) =>
-        patch((s) => ({ ...s, events: s.events.filter((e) => e.id !== id) })),
-
-      duplicateEvent: (id) =>
-        patch((s) => {
-          const source = s.events.find((e) => e.id === id);
-          if (!source) return s;
-          return {
+      createEvent: (draft) =>
+        write(
+          (s) => ({
             ...s,
             events: [
               ...s.events,
-              { ...source, id: newId("e"), title: `${source.title} (copy)` },
+              {
+                id: `tmp_${crypto.randomUUID()}`,
+                calendarId: draft.calendarId,
+                title: draft.title.trim() || "(no title)",
+                notes: draft.notes || undefined,
+                location: draft.location || undefined,
+                start: draft.start.toISOString(),
+                end: draft.end.toISOString(),
+                allDay: draft.allDay,
+                privacy: draft.privacy,
+                importance: draft.importance,
+                createdBy: userId,
+                sharedWith: draft.sharedWith,
+                attachments: draft.attachments,
+              },
             ],
-          };
-        }),
-
-      toggleEventShare: (eventId, personId) =>
-        mapEvents((e) =>
-          e.id === eventId
-            ? {
-                ...e,
-                sharedWith: e.sharedWith.includes(personId)
-                  ? e.sharedWith.filter((p) => p !== personId)
-                  : [...e.sharedWith, personId],
-              }
-            : e,
+          }),
+          async () => {
+            await db.insertEvent(supabase, draft, userId);
+            await refresh();
+          },
         ),
 
+      updateEvent: (draft) =>
+        write(
+          mapEvents((e) =>
+            e.id === draft.id
+              ? {
+                  ...e,
+                  calendarId: draft.calendarId,
+                  title: draft.title.trim() || "(no title)",
+                  notes: draft.notes || undefined,
+                  location: draft.location || undefined,
+                  start: draft.start.toISOString(),
+                  end: draft.end.toISOString(),
+                  allDay: draft.allDay,
+                  privacy: draft.privacy,
+                  importance: draft.importance,
+                  sharedWith: draft.sharedWith,
+                  attachments: draft.attachments,
+                }
+              : e,
+          ),
+          async () => {
+            await db.updateEvent(supabase, draft.id, draft, userId);
+            await refresh();
+          },
+        ),
+
+      rescheduleEvent: (id, start, end, allDay) =>
+        write(
+          mapEvents((e) =>
+            e.id === id
+              ? {
+                  ...e,
+                  start: start.toISOString(),
+                  end: end.toISOString(),
+                  allDay: allDay ?? e.allDay,
+                }
+              : e,
+          ),
+          () =>
+            db.patchEvent(supabase, id, {
+              starts_at: start.toISOString(),
+              ends_at: end.toISOString(),
+              ...(allDay === undefined ? {} : { all_day: allDay }),
+            }),
+        ),
+
+      deleteEvent: (id) =>
+        write(
+          (s) => ({ ...s, events: s.events.filter((e) => e.id !== id) }),
+          () => db.deleteEvent(supabase, id),
+        ),
+
+      duplicateEvent: (id) =>
+        write(
+          (s) => s,
+          async () => {
+            await db.duplicateEvent(supabase, id, userId);
+            await refresh();
+          },
+        ),
+
+      toggleEventShare: (eventId, personId) => {
+        const event = d.events.find((e) => e.id === eventId);
+        if (!event) return;
+        const next = event.sharedWith.includes(personId)
+          ? event.sharedWith.filter((p) => p !== personId)
+          : [...event.sharedWith, personId];
+        write(
+          mapEvents((e) => (e.id === eventId ? { ...e, sharedWith: next } : e)),
+          () => db.setShares(supabase, eventId, next, userId),
+        );
+      },
+
       moveEventToCalendar: (eventId, calendarId) =>
-        mapEvents((e) => (e.id === eventId ? { ...e, calendarId } : e)),
+        write(
+          mapEvents((e) => (e.id === eventId ? { ...e, calendarId } : e)),
+          () => db.patchEvent(supabase, eventId, { calendar_id: calendarId }),
+        ),
 
       setEventColor: (eventId, color) =>
-        mapEvents((e) => (e.id === eventId ? { ...e, color } : e)),
+        write(
+          mapEvents((e) => (e.id === eventId ? { ...e, color } : e)),
+          () => db.patchEvent(supabase, eventId, { color: color ?? null }),
+        ),
 
-      toggleCalendar: (id) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) =>
-            c.id === id ? { ...c, visible: !c.visible } : c,
+      setEventPrivacy: (eventId, privacy) =>
+        write(
+          mapEvents((e) => (e.id === eventId ? { ...e, privacy } : e)),
+          () => db.patchEvent(supabase, eventId, { privacy: privacy ?? null }),
+        ),
+
+      setEventImportance: (eventId, importance) =>
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? { ...e, importance: importance === "urgent" ? "urgent" : undefined }
+              : e,
           ),
-        })),
+          () => db.patchEvent(supabase, eventId, { importance }),
+        ),
 
-      showOnlyCalendar: (id) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) => ({ ...c, visible: c.id === id })),
-        })),
+      attachToEvent: (eventId, attachments) =>
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? { ...e, attachments: [...(e.attachments ?? []), ...attachments] }
+              : e,
+          ),
+          () => db.linkAttachments(supabase, eventId, attachments, userId),
+        ),
 
-      setAllCalendars: (visible) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) => ({ ...c, visible })),
-        })),
-
-      createCalendar: ({ name, color, groupId, privacy }) => {
-        const calendar: Calendar = {
-          id: newId("c"),
-          name: name.trim() || "Untitled calendar",
-          kind: groupId ? "shared" : "personal",
-          color,
-          ownerId: viewerId,
-          groupId,
-          visible: true,
-          privacy: privacy ?? (groupId ? "details" : "busy"),
-        };
-        patch((s) => ({ ...s, calendars: [...s.calendars, calendar] }));
-        return calendar;
+      removeAttachment: (eventId, attachmentId) => {
+        const attachment = d.events
+          .find((e) => e.id === eventId)
+          ?.attachments?.find((a) => a.id === attachmentId);
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? {
+                  ...e,
+                  attachments: (e.attachments ?? []).filter((a) => a.id !== attachmentId),
+                }
+              : e,
+          ),
+          () =>
+            attachment ? db.removeAttachment(supabase, attachment) : Promise.resolve(),
+        );
       },
+
+      /* ---------------- calendars ---------------- */
+
+      toggleCalendar: (id) => {
+        const hidden = new Set(prefs.current.hiddenCalendars);
+        if (hidden.has(id)) hidden.delete(id);
+        else hidden.add(id);
+        savePrefs({ hiddenCalendars: [...hidden] });
+        setData((s) =>
+          s
+            ? {
+                ...s,
+                calendars: s.calendars.map((c) =>
+                  c.id === id ? { ...c, visible: !hidden.has(c.id) } : c,
+                ),
+              }
+            : s,
+        );
+      },
+
+      showOnlyCalendar: (id) => {
+        const hidden = d.calendars.filter((c) => c.id !== id).map((c) => c.id);
+        savePrefs({ hiddenCalendars: hidden });
+        setData((s) =>
+          s
+            ? { ...s, calendars: s.calendars.map((c) => ({ ...c, visible: c.id === id })) }
+            : s,
+        );
+      },
+
+      createCalendar: (input) =>
+        write(
+          (s) => s,
+          async () => {
+            await db.insertCalendar(
+              supabase,
+              { ...input, privacy: input.privacy ?? (input.groupId ? "details" : "busy") },
+              userId,
+            );
+            await refresh();
+          },
+        ),
 
       renameCalendar: (id, name) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) =>
-            c.id === id ? { ...c, name: name.trim() || c.name } : c,
-          ),
-        })),
+        write(
+          (s) => ({
+            ...s,
+            calendars: s.calendars.map((c) =>
+              c.id === id ? { ...c, name: name.trim() || c.name } : c,
+            ),
+          }),
+          () => db.patchCalendar(supabase, id, { name: name.trim() }),
+        ),
 
       setCalendarColor: (id, color) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) => (c.id === id ? { ...c, color } : c)),
-        })),
+        write(
+          (s) => ({
+            ...s,
+            calendars: s.calendars.map((c) => (c.id === id ? { ...c, color } : c)),
+          }),
+          () => db.patchCalendar(supabase, id, { color }),
+        ),
+
+      setCalendarPrivacy: (id, privacy) =>
+        write(
+          (s) => ({
+            ...s,
+            calendars: s.calendars.map((c) => (c.id === id ? { ...c, privacy } : c)),
+          }),
+          () => db.patchCalendar(supabase, id, { privacy }),
+        ),
 
       updateCalendarGroup: (id, groupId) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.map((c) =>
-            c.id === id
-              ? { ...c, groupId, kind: groupId ? "shared" : "personal" }
-              : c,
-          ),
-        })),
+        write(
+          (s) => ({
+            ...s,
+            calendars: s.calendars.map((c) =>
+              c.id === id ? { ...c, groupId, kind: groupId ? "shared" : "personal" } : c,
+            ),
+          }),
+          async () => {
+            await db.patchCalendar(supabase, id, {
+              group_id: groupId ?? null,
+              kind: groupId ? "shared" : "personal",
+            });
+            await refresh();
+          },
+        ),
 
       deleteCalendar: (id) =>
-        patch((s) => ({
-          ...s,
-          calendars: s.calendars.filter((c) => c.id !== id),
-          events: s.events.filter((e) => e.calendarId !== id),
-        })),
+        write(
+          (s) => ({
+            ...s,
+            calendars: s.calendars.filter((c) => c.id !== id),
+            events: s.events.filter((e) => e.calendarId !== id),
+          }),
+          () => db.deleteCalendar(supabase, id),
+        ),
 
-      invitePerson: (email, name) => {
-        const existing = d.people.find(
-          (p) => p.email.toLowerCase() === email.trim().toLowerCase(),
-        );
-        if (existing) return existing;
-        const person: Person = {
-          id: newId("u"),
-          name: (name ?? email.split("@")[0]).trim() || "Guest",
-          email: email.trim(),
-          avatarColor: COLOR_CYCLE[d.people.length % COLOR_CYCLE.length],
-        };
-        patch((s) => ({ ...s, people: [...s.people, person] }));
-        return person;
-      },
+      /* ---------------- groups ---------------- */
 
-      createGroup: (name, memberIds) => {
-        const group: Group = {
-          id: newId("g"),
-          name: name.trim() || "New group",
-          ownerId: viewerId,
-          memberIds: Array.from(new Set([viewerId, ...memberIds])),
-        };
-        patch((s) => ({ ...s, groups: [...s.groups, group] }));
-        return group;
-      },
+      createGroup: (name, memberIds, withCalendar = true) =>
+        write(
+          (s) => s,
+          async () => {
+            const groupId = await db.insertGroup(supabase, name, memberIds, userId);
+            if (withCalendar) {
+              await db.insertCalendar(
+                supabase,
+                {
+                  name: name.trim() || "Shared",
+                  color: "violet",
+                  groupId,
+                  privacy: "details",
+                },
+                userId,
+              );
+            }
+            await refresh();
+          },
+        ),
 
       setGroupMembers: (groupId, memberIds) =>
-        patch((s) => ({
-          ...s,
-          groups: s.groups.map((g) =>
-            g.id === groupId
-              ? { ...g, memberIds: Array.from(new Set([viewerId, ...memberIds])) }
-              : g,
-          ),
-        })),
+        write(
+          (s) => ({
+            ...s,
+            groups: s.groups.map((g) =>
+              g.id === groupId
+                ? { ...g, memberIds: [...new Set([userId, ...memberIds])] }
+                : g,
+            ),
+          }),
+          async () => {
+            await db.setGroupMembers(supabase, groupId, memberIds, userId);
+            await refresh();
+          },
+        ),
 
       renameGroup: (groupId, name) =>
-        patch((s) => ({
-          ...s,
-          groups: s.groups.map((g) =>
-            g.id === groupId ? { ...g, name: name.trim() || g.name } : g,
-          ),
-        })),
+        write(
+          (s) => ({
+            ...s,
+            groups: s.groups.map((g) =>
+              g.id === groupId ? { ...g, name: name.trim() || g.name } : g,
+            ),
+          }),
+          () => db.patchGroup(supabase, groupId, { name: name.trim() }),
+        ),
 
       deleteGroup: (groupId) =>
-        patch((s) => ({
-          ...s,
-          groups: s.groups.filter((g) => g.id !== groupId),
-          calendars: s.calendars.map((c) =>
-            c.groupId === groupId ? { ...c, groupId: undefined, kind: "personal" } : c,
-          ),
-        })),
+        write(
+          (s) => ({ ...s, groups: s.groups.filter((g) => g.id !== groupId) }),
+          async () => {
+            await db.deleteGroup(supabase, groupId);
+            await refresh();
+          },
+        ),
 
-      resetDemoData: () => setData(freshData()),
+      /* ---------------- invitations ---------------- */
+
+      createInvites: async (emails, groupId) => {
+        const known = new Set(
+          d.people
+            .map((p) => p.email.toLowerCase())
+            .concat(
+              d.invites
+                .filter((i) => i.status !== "failed")
+                .map((i) => i.email.toLowerCase()),
+            ),
+        );
+        const rows = [...new Set(emails.map((e) => e.trim().toLowerCase()))]
+          .filter((email) => email.includes("@") && !known.has(email))
+          .map((email) => ({
+            email,
+            token: crypto.randomUUID().replace(/-/g, ""),
+            groupId,
+          }));
+        if (!rows.length) return [];
+
+        try {
+          const created = await db.insertInvites(supabase, rows, userId);
+          setData((s) => (s ? { ...s, invites: [...created, ...s.invites] } : s));
+          return created;
+        } catch (e) {
+          setError(describe(e));
+          return [];
+        }
+      },
+
+      updateInvite: (id, patch) =>
+        write(
+          (s) => ({
+            ...s,
+            invites: s.invites.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+          }),
+          () =>
+            db.patchInvite(supabase, id, {
+              ...(patch.status ? { status: patch.status } : {}),
+              ...(patch.error !== undefined ? { error: patch.error ?? null } : {}),
+            }),
+        ),
+
+      cancelInvite: (id) =>
+        write(
+          (s) => ({ ...s, invites: s.invites.filter((i) => i.id !== id) }),
+          () => db.deleteInvite(supabase, id),
+        ),
+
+      togglePersonBusy: (personId) => {
+        const hidden = new Set(prefs.current.busyHidden);
+        if (hidden.has(personId)) hidden.delete(personId);
+        else hidden.add(personId);
+        savePrefs({ busyHidden: [...hidden] });
+        setData((s) => (s ? { ...s, busyHidden: [...hidden] } : s));
+      },
     };
-  }, [data, mapEvents, patch]);
+  }, [data, error, refresh, savePrefs, supabase, user, write]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+/** Turns a Postgres/PostgREST error into something a person can act on. */
+function describe(e: unknown) {
+  if (typeof e === "object" && e && "message" in e) {
+    const message = String((e as { message: string }).message);
+    if (
+      message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("Could not find the table")
+    ) {
+      return "Database tables are missing — run supabase/schema.sql in the Supabase SQL editor.";
+    }
+    if (message.includes("row-level security")) {
+      return "That change was refused: you do not have access to it.";
+    }
+    return message;
+  }
+  return "Something went wrong.";
 }
 
 export function useStore() {

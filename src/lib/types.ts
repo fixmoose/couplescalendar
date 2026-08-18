@@ -23,6 +23,8 @@ export interface Person {
   email: string;
   /** Initials shown in avatars when there is no image. */
   avatarColor: ColorKey;
+  /** Google profile picture, when the account came from OAuth. */
+  avatarUrl?: string;
 }
 
 export interface Group {
@@ -93,6 +95,8 @@ export interface CalendarEvent {
   sharedWith: string[];
   /** Overrides the calendar's privacy for this one event. */
   privacy?: Privacy;
+  /** Flagged by whoever created it, and called out to everyone who sees it. */
+  importance?: Importance;
   /** Files dropped onto this event. Never exposed on a masked event. */
   attachments?: Attachment[];
   /**
@@ -101,6 +105,8 @@ export interface CalendarEvent {
    */
   masked?: boolean;
 }
+
+export type Importance = "normal" | "urgent";
 
 export type CalendarView = "month" | "week" | "day" | "agenda";
 
@@ -117,6 +123,7 @@ export interface EventDraft {
   sharedWith: string[];
   /** Per-event override of the calendar's privacy; undefined = inherit. */
   privacy?: Privacy;
+  importance?: Importance;
   attachments?: Attachment[];
 }
 

@@ -7,8 +7,12 @@ export interface ViewHandlers {
   onOpenEvent: (event: CalendarEvent) => void;
   /** Right-click on an event. */
   onEventMenu: (e: React.MouseEvent, event: CalendarEvent) => void;
-  /** Click (or drag) on empty space — opens the editor pre-filled. */
+  /** Drag, double-click or the right-click menu — opens the editor pre-filled. */
   onCreate: (start: Date, end: Date, allDay: boolean) => void;
+  /** Plain left click on empty space: selects the slot, creates nothing. */
+  onSelectSlot: (start: Date, end: Date, allDay: boolean) => void;
+  /** The slot the viewer has picked, so views can highlight it. */
+  selectedSlot: { start: string; end: string } | null;
   /** Right-click on empty space. */
   onSlotMenu: (e: React.MouseEvent, at: Date, allDay: boolean) => void;
   /** Jump the whole app to a date/view. */

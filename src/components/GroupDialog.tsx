@@ -20,6 +20,7 @@ export function GroupDialog({
     group?.memberIds ?? [store.currentUserId],
   );
   const [email, setEmail] = useState("");
+  const [sent, setSent] = useState<string[]>([]);
   const [withCalendar, setWithCalendar] = useState(!group);
 
   const toggle = (id: string) =>
@@ -29,13 +30,21 @@ export function GroupDialog({
         : [...current, id],
     );
 
-  const invite = () => {
+  /** People who are not on CouplesCalendar yet get an emailed invitation. */
+  const invite = async () => {
     const value = email.trim();
     if (!value.includes("@")) return;
-    const person = store.invitePerson(value);
-    setMembers((current) =>
-      current.includes(person.id) ? current : [...current, person.id],
+    const existing = store.people.find(
+      (p) => p.email.toLowerCase() === value.toLowerCase(),
     );
+    if (existing) {
+      setMembers((current) =>
+        current.includes(existing.id) ? current : [...current, existing.id],
+      );
+    } else {
+      await store.createInvites([value], group?.id);
+      setSent((current) => [...current, value]);
+    }
     setEmail("");
   };
 
@@ -44,14 +53,7 @@ export function GroupDialog({
       store.renameGroup(group.id, name);
       store.setGroupMembers(group.id, members);
     } else {
-      const created = store.createGroup(name, members);
-      if (withCalendar) {
-        store.createCalendar({
-          name: created.name,
-          color: "violet",
-          groupId: created.id,
-        });
-      }
+      store.createGroup(name, members, withCalendar);
     }
     onClose();
   };
@@ -135,11 +137,11 @@ export function GroupDialog({
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && invite()}
+              onKeyDown={(e) => e.key === "Enter" && void invite()}
               placeholder="name@example.com"
               className={inputClass}
             />
-            <Button variant="outline" onClick={invite} className="shrink-0">
+            <Button variant="outline" onClick={() => void invite()} className="shrink-0">
               <UserPlus size={15} /> Add
             </Button>
           </div>
@@ -155,6 +157,13 @@ export function GroupDialog({
             />
             Also create a shared calendar for this group
           </label>
+        )}
+
+        {sent.length > 0 && (
+          <p className="text-[12px] text-ink-faint">
+            Invitation queued for {sent.join(", ")} — they join the group when they
+            accept.
+          </p>
         )}
       </div>
     </Modal>

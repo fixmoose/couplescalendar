@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { AlertTriangle } from "lucide-react";
 import { colorVar } from "@/lib/colors";
 import { timeLabel } from "@/lib/date";
 import { useStore } from "@/lib/store";
@@ -64,6 +65,7 @@ export function EventPill({
       title={`${event.title} — ${label}`}
       className={clsx(
         "flex h-[21px] w-full items-center gap-1.5 overflow-hidden px-1.5 text-[12px] leading-none transition select-none",
+        event.importance === "urgent" && !masked && "ring-1 ring-[#d1443c]/40",
         masked
           ? "cc-busy border border-dashed font-medium italic"
           : banner
@@ -92,8 +94,15 @@ export function EventPill({
         )}
         {event.title}
       </span>
+      {event.importance === "urgent" && (
+        <AlertTriangle
+          size={11}
+          className={clsx("shrink-0", banner ? "opacity-90" : "text-[#d1443c]")}
+        />
+      )}
       <AttachmentBadge
         count={event.attachments?.length ?? 0}
+        attachments={event.attachments}
         className={banner ? "opacity-90" : "text-ink-faint"}
       />
 
@@ -109,7 +118,9 @@ export function EventPill({
                 className={banner ? "opacity-90" : "text-ink-faint"}
               />
             )}
-            {others.length > 0 && <PeopleStack people={others} size={14} max={2} />}
+            {others.length > 0 && (
+              <PeopleStack people={others} size={14} max={2} event={event} />
+            )}
           </>
         )}
         {continuesRight && <span className="opacity-80">›</span>}
