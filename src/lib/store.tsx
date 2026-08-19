@@ -25,6 +25,7 @@ import type {
   Invite,
   Person,
   Privacy,
+  ReminderChannel,
 } from "./types";
 
 /**
@@ -107,6 +108,10 @@ interface StoreValue extends Data {
   setEventColor: (eventId: string, color: ColorKey | undefined) => void;
   setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
   setEventImportance: (eventId: string, importance: Importance) => void;
+  setEventReminders: (
+    eventId: string,
+    reminders: { minutesBefore: number; channel: ReminderChannel }[],
+  ) => void;
   attachToEvent: (eventId: string, attachments: Attachment[]) => void;
   removeAttachment: (eventId: string, attachmentId: string) => void;
   toggleCalendar: (id: string) => void;
@@ -487,6 +492,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : e,
           ),
           () => db.patchEvent(supabase, eventId, { importance }),
+        ),
+
+      setEventReminders: (eventId, reminders) =>
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? {
+                  ...e,
+                  reminders: reminders.map((r, i) => ({
+                    id: e.reminders?.[i]?.id ?? `tmp_${i}`,
+                    eventId,
+                    ...r,
+                  })),
+                }
+              : e,
+          ),
+          async () => {
+            await db.setReminders(supabase, eventId, reminders);
+            await refresh();
+          },
         ),
 
       attachToEvent: (eventId, attachments) =>

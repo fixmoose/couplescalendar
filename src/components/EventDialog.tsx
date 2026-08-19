@@ -12,6 +12,7 @@ import { AttachmentList } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
 import { PrivacyPicker } from "./PrivacyPicker";
+import { RemindersField } from "./RemindersField";
 import { ShareField } from "./ShareField";
 import { LocationLink, SmartText } from "./SmartText";
 import { Button, Field, Modal, controlClass, inputClass } from "./ui";
@@ -217,6 +218,14 @@ export function EventDialog({
           />
         </Field>
 
+        <Field label="Reminders">
+          <RemindersField
+            reminders={form.reminders ?? []}
+            editable
+            onChange={(reminders) => set("reminders", reminders)}
+          />
+        </Field>
+
         <Field label="Who else can see it">
           <PrivacyPicker
             value={form.privacy}
@@ -322,6 +331,16 @@ function SharedEventView({
             <SmartText
               text={event.notes}
               className="text-[13px] whitespace-pre-wrap text-ink"
+            />
+          </Field>
+        )}
+        {event.reminders && event.reminders.length > 0 && (
+          <Field label="Reminders">
+            <RemindersField
+              reminders={event.reminders}
+              editable={false}
+              authorName={store.personById(event.createdBy)?.name}
+              onChange={() => {}}
             />
           </Field>
         )}

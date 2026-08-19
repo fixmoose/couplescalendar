@@ -207,6 +207,30 @@ values go into Vercel (Project → Settings → Environment Variables):
 
 Optional: `UNIONE_FROM_EMAIL`, `UNIONE_FROM_NAME`.
 
+## Reminders
+
+Every new event starts with two: **24 hours** and **2 hours** before. Change
+them in the event editor — presets from 7 days down to "at the time", and each
+one delivers either as a **browser notification** or an **email**.
+
+Reminders belong to the event, not to the reader:
+
+- Whoever created the event sets them.
+- Everyone the event reaches gets the same ones, and **cannot turn them off**.
+- The creator cannot turn them off for one person either — it is all or none.
+
+Browser reminders fire from the open tab (`ReminderWatcher`), which is the
+honest limit of notifications without a service worker and push subscriptions;
+that is the next step. When one fires you get the event, the time, the place
+and a note about the next reminder still to come — with a "turn that one off"
+button only if the event is yours.
+
+Email reminders go out from `/api/cron/reminders` every 15 minutes, to the
+creator, anyone the event was shared with, and the members of the group owning
+the calendar. Each send inserts a row in `cc_reminder_deliveries` first, and
+that insert is the lock — so a re-run inside the same window cannot send
+twice.
+
 ## Subscribing to Google and Outlook
 
 Sidebar → **Subscribed → +**. Paste the calendar's secret iCal address and

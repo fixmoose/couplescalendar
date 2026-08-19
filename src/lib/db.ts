@@ -14,6 +14,8 @@ import type {
   Invite,
   Person,
   Privacy,
+  Reminder,
+  ReminderChannel,
 } from "./types";
 
 /**
@@ -175,6 +177,43 @@ const toFeed = (row: FeedRow): Feed => ({
   eventCount: row.event_count,
 });
 
+interface ReminderRow {
+  id: string;
+  event_id: string;
+  minutes_before: number;
+  channel: "browser" | "email";
+}
+
+const toReminder = (row: ReminderRow): Reminder => ({
+  id: row.id,
+  eventId: row.event_id,
+  minutesBefore: row.minutes_before,
+  channel: row.channel,
+});
+
+/** Replaces an event's reminders with exactly this set. */
+export async function setReminders(
+  supabase: Client,
+  eventId: string,
+  reminders: { minutesBefore: number; channel: ReminderChannel }[],
+) {
+  const { error: clearError } = await supabase
+    .from("cc_event_reminders")
+    .delete()
+    .eq("event_id", eventId);
+  if (clearError) throw clearError;
+
+  if (!reminders.length) return;
+  const { error } = await supabase.from("cc_event_reminders").insert(
+    reminders.map((r) => ({
+      event_id: eventId,
+      minutes_before: r.minutesBefore,
+      channel: r.channel,
+    })),
+  );
+  if (error) throw error;
+}
+
 /** Subscribing to a calendar creates the calendar it lands in, then the feed. */
 export async function insertFeed(
   supabase: Client,
@@ -227,7 +266,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, feeds] =
     await Promise.all([
       supabase.from("cc_profiles").select("id,email,display_name,avatar_color,avatar_url"),
       supabase.from("cc_groups").select("id,name,owner_id"),
@@ -249,6 +288,7 @@ export async function loadWorkspace(
         .from("cc_invitations")
         .select("id,email,token,invited_by,group_id,event_id,status,error,created_at")
         .order("created_at", { ascending: false }),
+      supabase.from("cc_event_reminders").select("id,event_id,minutes_before,channel"),
       supabase
         .from("cc_calendar_feeds")
         .select(
@@ -257,7 +297,7 @@ export async function loadWorkspace(
         .order("created_at"),
     ]);
 
-  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, feeds]
+  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, feeds]
     .map((r) => r.error)
     .find(Boolean);
   if (firstError) throw firstError;
@@ -270,6 +310,14 @@ export async function loadWorkspace(
   const sharesByEvent = new Map<string, string[]>();
   for (const row of (guests.data ?? []) as { event_id: string; user_id: string }[]) {
     sharesByEvent.set(row.event_id, [...(sharesByEvent.get(row.event_id) ?? []), row.user_id]);
+  }
+
+  const remindersByEvent = new Map<string, Reminder[]>();
+  for (const row of (reminders.data ?? []) as ReminderRow[]) {
+    remindersByEvent.set(row.event_id, [
+      ...(remindersByEvent.get(row.event_id) ?? []),
+      toReminder(row),
+    ]);
   }
 
   const filesByEvent = new Map<string, Attachment[]>();
@@ -309,6 +357,7 @@ export async function loadWorkspace(
       sharedWith: sharesByEvent.get(row.id) ?? [],
       attachments: filesByEvent.get(row.id),
       feedId: row.feed_id ?? undefined,
+      reminders: remindersByEvent.get(row.id),
       masked: row.masked || undefined,
     })),
     invites: ((invites.data ?? []) as InviteRow[]).map(toInvite),
@@ -345,6 +394,7 @@ export async function insertEvent(supabase: Client, draft: EventDraft, userId: s
   await Promise.all([
     setShares(supabase, eventId, draft.sharedWith, userId),
     linkAttachments(supabase, eventId, draft.attachments ?? [], userId),
+    setReminders(supabase, eventId, draft.reminders ?? []),
   ]);
   return eventId;
 }
@@ -363,6 +413,7 @@ export async function updateEvent(
   await Promise.all([
     setShares(supabase, id, draft.sharedWith, userId),
     linkAttachments(supabase, id, draft.attachments ?? [], userId),
+    setReminders(supabase, id, draft.reminders ?? []),
   ]);
 }
 

@@ -31,7 +31,14 @@ import { timeLabel, weekDays } from "@/lib/date";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes, titleFromFileName } from "@/lib/files";
 import { useStore } from "@/lib/store";
-import type { CalendarEvent, CalendarView, EventDraft, Calendar, Group } from "@/lib/types";
+import {
+  DEFAULT_REMINDERS,
+  type Calendar,
+  type CalendarEvent,
+  type CalendarView,
+  type EventDraft,
+  type Group,
+} from "@/lib/types";
 import { AgendaView } from "./AgendaView";
 import { CalendarDialog } from "./CalendarDialog";
 import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
@@ -40,6 +47,7 @@ import { EventDialog } from "./EventDialog";
 import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
 import { PersonPanel } from "./PersonPanel";
+import { ReminderWatcher } from "./ReminderWatcher";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
@@ -117,6 +125,7 @@ export function CalendarApp() {
           allDay,
           sharedWith: [],
           inviteEmails: [],
+          reminders: [...DEFAULT_REMINDERS],
         },
       }),
     [defaultCalendarId],
@@ -141,6 +150,10 @@ export function CalendarApp() {
         inviteEmails: [],
         privacy: event.privacy,
         importance: event.importance,
+        reminders: (event.reminders ?? []).map((r) => ({
+          minutesBefore: r.minutesBefore,
+          channel: r.channel,
+        })),
       },
     });
   }, []);
@@ -437,6 +450,7 @@ export function CalendarApp() {
           sharedWith: [],
           inviteEmails: [],
           attachments: stored,
+          reminders: [...DEFAULT_REMINDERS],
         },
       });
     },
@@ -622,6 +636,8 @@ export function CalendarApp() {
           }}
         />
       )}
+
+      <ReminderWatcher />
 
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
 

@@ -101,6 +101,8 @@ export interface CalendarEvent {
   attachments?: Attachment[];
   /** Set when the event was imported from a subscribed calendar. */
   feedId?: string;
+  /** When to remind everyone who can see this event. */
+  reminders?: Reminder[];
   /**
    * Set by the store when the viewer may only see that this time is taken.
    * Masked events carry no details — see maskEvent() in lib/access.ts.
@@ -129,7 +131,29 @@ export interface EventDraft {
   privacy?: Privacy;
   importance?: Importance;
   attachments?: Attachment[];
+  /** Minutes-before/channel pairs; ids are assigned when saved. */
+  reminders?: { minutesBefore: number; channel: ReminderChannel }[];
 }
+
+export type ReminderChannel = "browser" | "email";
+
+/**
+ * A reminder is a property of the event: the creator sets it, and everyone the
+ * event reaches gets it. Recipients cannot switch it off, and the creator
+ * cannot switch it off for one recipient in particular.
+ */
+export interface Reminder {
+  id: string;
+  eventId: string;
+  minutesBefore: number;
+  channel: ReminderChannel;
+}
+
+/** What a new event starts with unless you change it. */
+export const DEFAULT_REMINDERS: { minutesBefore: number; channel: ReminderChannel }[] = [
+  { minutesBefore: 24 * 60, channel: "browser" },
+  { minutesBefore: 2 * 60, channel: "browser" },
+];
 
 /** A Google or Outlook calendar we mirror by its iCal address. */
 export interface Feed {
