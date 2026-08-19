@@ -334,16 +334,18 @@ function SharedEventView({
             />
           </Field>
         )}
-        {event.reminders && event.reminders.length > 0 && (
-          <Field label="Reminders">
-            <RemindersField
-              reminders={event.reminders}
-              editable={false}
-              authorName={store.personById(event.createdBy)?.name}
-              onChange={() => {}}
-            />
-          </Field>
-        )}
+        <Field label="Remind me">
+          <RemindersField
+            reminders={(event.reminders ?? []).map((r) => ({
+              minutesBefore: r.minutesBefore,
+              channel: r.channel,
+              forEveryone: !r.userId,
+            }))}
+            editable={false}
+            authorName={store.personById(event.createdBy)?.name}
+            onChange={(reminders) => store.setEventReminders(event.id, reminders)}
+          />
+        </Field>
         {event.attachments && event.attachments.length > 0 && (
           <Field label="Files">
             <AttachmentList attachments={event.attachments} />

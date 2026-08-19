@@ -1,11 +1,11 @@
 "use client";
 
 import clsx from "clsx";
-import { Bell, BellOff, Mail, Monitor, Plus, X } from "lucide-react";
+import { Bell, Mail, Monitor, Plus, User, Users, X } from "lucide-react";
 import { useState } from "react";
-import type { ReminderChannel } from "@/lib/types";
+import type { ReminderChannel, ReminderDraft } from "@/lib/types";
 
-type Draft = { minutesBefore: number; channel: ReminderChannel };
+type Draft = ReminderDraft;
 
 const PRESETS = [
   { minutes: 7 * 24 * 60, label: "7 days" },
@@ -54,7 +54,7 @@ export function RemindersField({
       return;
     }
     onChange(
-      [...reminders, { minutesBefore, channel }].sort(
+      [...reminders, { minutesBefore, channel, forEveryone: false }].sort(
         (a, b) => b.minutesBefore - a.minutesBefore,
       ),
     );
@@ -67,30 +67,9 @@ export function RemindersField({
   const setChannel = (index: number, channel: ReminderChannel) =>
     onChange(reminders.map((r, i) => (i === index ? { ...r, channel } : r)));
 
-  if (!editable) {
-    return (
-      <div className="space-y-1.5">
-        {reminders.length === 0 ? (
-          <p className="flex items-center gap-1.5 text-[13px] text-ink-faint">
-            <BellOff size={13} /> No reminders on this event.
-          </p>
-        ) : (
-          reminders.map((r, i) => (
-            <p key={i} className="flex items-center gap-1.5 text-[13px] text-ink">
-              <Bell size={13} className="text-brand" />
-              {describeReminder(r.minutesBefore)}
-              <span className="text-ink-faint">
-                · {r.channel === "email" ? "email" : "notification"}
-              </span>
-            </p>
-          ))
-        )}
-        <p className="text-[12px] text-ink-faint">
-          Set by {authorName ?? "whoever created this"} — only they can change them.
-        </p>
-      </div>
-    );
-  }
+  const setAudience = (index: number, forEveryone: boolean) =>
+    onChange(reminders.map((r, i) => (i === index ? { ...r, forEveryone } : r)));
+
 
   return (
     <div className="space-y-2">
@@ -109,6 +88,33 @@ export function RemindersField({
           <span className="min-w-0 flex-1 text-[13px] text-ink">
             {describeReminder(r.minutesBefore)}
           </span>
+
+          {/* Just me, or everyone this event reaches. */}
+          {editable && (
+            <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
+              {(
+                [
+                  [false, User, "Only me"],
+                  [true, Users, "Everyone on this event"],
+                ] as const
+              ).map(([value, Icon, title]) => (
+                <button
+                  key={String(value)}
+                  type="button"
+                  title={title}
+                  onClick={() => setAudience(i, value)}
+                  className={clsx(
+                    "flex h-6 w-7 items-center justify-center rounded-md transition",
+                    r.forEveryone === value
+                      ? "bg-surface text-brand shadow-[var(--shadow-sm)]"
+                      : "text-ink-faint hover:text-ink",
+                  )}
+                >
+                  <Icon size={13} />
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
             {(
@@ -175,9 +181,20 @@ export function RemindersField({
         </button>
       )}
 
-      <p className="text-[12px] text-ink-faint">
-        Everyone this event is shared with gets the same reminders, and cannot
-        turn them off.
+      <p className="text-[12px] leading-relaxed text-ink-faint">
+        {editable ? (
+          <>
+            Reminders are yours alone unless you switch one to{" "}
+            <Users size={11} className="inline align-[-1px]" /> everyone — those
+            reach each person the event is shared with, who can then add their
+            own on top.
+          </>
+        ) : (
+          <>
+            These are your own reminders for {authorName ?? "this"}&apos;s event.
+            Nobody else sees them.
+          </>
+        )}
       </p>
     </div>
   );

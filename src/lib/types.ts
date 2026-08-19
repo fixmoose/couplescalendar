@@ -131,29 +131,52 @@ export interface EventDraft {
   privacy?: Privacy;
   importance?: Importance;
   attachments?: Attachment[];
-  /** Minutes-before/channel pairs; ids are assigned when saved. */
-  reminders?: { minutesBefore: number; channel: ReminderChannel }[];
+  /** Ids are assigned when saved. */
+  reminders?: ReminderDraft[];
 }
 
 export type ReminderChannel = "browser" | "email";
 
 /**
- * A reminder is a property of the event: the creator sets it, and everyone the
- * event reaches gets it. Recipients cannot switch it off, and the creator
- * cannot switch it off for one recipient in particular.
+ * A reminder is either personal or shared:
+ *   userId set   → only that person is reminded, and only they can change it
+ *   userId unset → everyone who can see the event is reminded
+ * New events start with the creator's own, so nobody inherits somebody else's
+ * alarms without choosing to.
  */
 export interface Reminder {
   id: string;
   eventId: string;
   minutesBefore: number;
   channel: ReminderChannel;
+  /** Undefined means everyone who can see the event. */
+  userId?: string;
 }
 
-/** What a new event starts with unless you change it. */
-export const DEFAULT_REMINDERS: { minutesBefore: number; channel: ReminderChannel }[] = [
-  { minutesBefore: 24 * 60, channel: "browser" },
-  { minutesBefore: 2 * 60, channel: "browser" },
+/** A message waiting in the bell menu. */
+export interface AppNotification {
+  id: string;
+  kind: "share" | "update" | "cancel" | "invite";
+  title: string;
+  body?: string;
+  eventId?: string;
+  actorId?: string;
+  readAt?: string;
+  createdAt: string;
+}
+
+/** What a new event starts with: the creator's own, nobody else's. */
+export const DEFAULT_REMINDERS: ReminderDraft[] = [
+  { minutesBefore: 24 * 60, channel: "browser", forEveryone: false },
+  { minutesBefore: 2 * 60, channel: "browser", forEveryone: false },
 ];
+
+export interface ReminderDraft {
+  minutesBefore: number;
+  channel: ReminderChannel;
+  /** Off means "just me"; on means everyone the event reaches. */
+  forEveryone: boolean;
+}
 
 /** A Google or Outlook calendar we mirror by its iCal address. */
 export interface Feed {

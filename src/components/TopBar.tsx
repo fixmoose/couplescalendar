@@ -3,8 +3,9 @@
 import { ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
 import { useTheme } from "@/lib/theme";
-import type { CalendarView } from "@/lib/types";
+import type { CalendarEvent, CalendarView } from "@/lib/types";
 import { AccountMenu } from "./AccountMenu";
+import { NotificationsMenu } from "./NotificationsMenu";
 import { Button, IconButton, Segmented, inputClass } from "./ui";
 
 export function TopBar({
@@ -16,6 +17,7 @@ export function TopBar({
   onNext,
   onToday,
   onView,
+  onOpenEvent,
 }: {
   date: Date;
   view: CalendarView;
@@ -25,6 +27,7 @@ export function TopBar({
   onNext: () => void;
   onToday: () => void;
   onView: (view: CalendarView) => void;
+  onOpenEvent: (event: CalendarEvent) => void;
 }) {
   const { theme, toggle } = useTheme();
 
@@ -71,6 +74,8 @@ export function TopBar({
             { value: "agenda", label: "Agenda", hint: "A" },
           ]}
         />
+
+        <NotificationsMenu onOpenEvent={onOpenEvent} />
 
         <IconButton onClick={toggle} aria-label="Toggle theme">
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}

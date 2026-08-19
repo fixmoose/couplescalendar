@@ -192,7 +192,7 @@ export function ReminderWatcher() {
           >
             OK
           </Button>
-          {isMine && later && (
+          {later && (!later.userId ? isMine : true) && (
             <Button
               variant="outline"
               onClick={() => {
@@ -200,7 +200,11 @@ export function ReminderWatcher() {
                   event.id,
                   (event.reminders ?? [])
                     .filter((r) => r.id !== later.id)
-                    .map((r) => ({ minutesBefore: r.minutesBefore, channel: r.channel })),
+                    .map((r) => ({
+                      minutesBefore: r.minutesBefore,
+                      channel: r.channel,
+                      forEveryone: !r.userId,
+                    })),
                 );
                 setDue(null);
               }}

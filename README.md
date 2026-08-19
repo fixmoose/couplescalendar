@@ -213,11 +213,24 @@ Every new event starts with two: **24 hours** and **2 hours** before. Change
 them in the event editor — presets from 7 days down to "at the time", and each
 one delivers either as a **browser notification** or an **email**.
 
-Reminders belong to the event, not to the reader:
+Reminders are personal by default:
 
-- Whoever created the event sets them.
-- Everyone the event reaches gets the same ones, and **cannot turn them off**.
-- The creator cannot turn them off for one person either — it is all or none.
+- Yours alone unless you switch one to **everyone** (the 👤/👥 toggle).
+- An "everyone" reminder reaches each person the event is shared with.
+- Anyone who can see an event can add **their own** reminders on top, and only
+  they see or control those.
+
+Nobody is signed up to somebody else's alarms without choosing to, which is
+why "only me" is the default.
+
+### Notifications
+
+Sharing an event with somebody writes them a notification — a row in
+`cc_notifications`, created by a database trigger on `cc_event_shares` so it
+happens however the share was made. They are kept rather than fired and
+forgotten, so a share still greets you after a refresh, a new login or on
+another device. The bell in the top bar carries the unread count and opens the
+list; clicking one jumps to the event.
 
 Browser reminders fire from the open tab (`ReminderWatcher`), which is the
 honest limit of notifications without a service worker and push subscriptions;

@@ -153,6 +153,7 @@ export function CalendarApp() {
         reminders: (event.reminders ?? []).map((r) => ({
           minutesBefore: r.minutesBefore,
           channel: r.channel,
+          forEveryone: !r.userId,
         })),
       },
     });
@@ -604,6 +605,10 @@ export function CalendarApp() {
           onNext={() => step(1)}
           onToday={() => setDate(new Date())}
           onView={setView}
+          onOpenEvent={(event) => {
+            setDate(new Date(event.start));
+            editEvent(event);
+          }}
         />
 
         {view === "month" && (

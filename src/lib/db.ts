@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { COLOR_KEYS } from "./colors";
 import type {
+  AppNotification,
   Attachment,
   Calendar,
   CalendarEvent,
@@ -15,7 +16,7 @@ import type {
   Person,
   Privacy,
   Reminder,
-  ReminderChannel,
+  ReminderDraft,
 } from "./types";
 
 /**
@@ -149,6 +150,7 @@ export interface Workspace {
   events: CalendarEvent[];
   invites: Invite[];
   feeds: Feed[];
+  notifications: AppNotification[];
 }
 
 interface FeedRow {
@@ -182,6 +184,7 @@ interface ReminderRow {
   event_id: string;
   minutes_before: number;
   channel: "browser" | "email";
+  user_id: string | null;
 }
 
 const toReminder = (row: ReminderRow): Reminder => ({
@@ -189,18 +192,25 @@ const toReminder = (row: ReminderRow): Reminder => ({
   eventId: row.event_id,
   minutesBefore: row.minutes_before,
   channel: row.channel,
+  userId: row.user_id ?? undefined,
 });
 
-/** Replaces an event's reminders with exactly this set. */
+/**
+ * Replaces the reminders this user is allowed to set — their own, plus the
+ * event-wide ones if they can edit the event. Other people's personal
+ * reminders are invisible here and left alone.
+ */
 export async function setReminders(
   supabase: Client,
   eventId: string,
-  reminders: { minutesBefore: number; channel: ReminderChannel }[],
+  reminders: ReminderDraft[],
+  userId: string,
 ) {
   const { error: clearError } = await supabase
     .from("cc_event_reminders")
     .delete()
-    .eq("event_id", eventId);
+    .eq("event_id", eventId)
+    .or(`user_id.eq.${userId},user_id.is.null`);
   if (clearError) throw clearError;
 
   if (!reminders.length) return;
@@ -209,8 +219,46 @@ export async function setReminders(
       event_id: eventId,
       minutes_before: r.minutesBefore,
       channel: r.channel,
+      user_id: r.forEveryone ? null : userId,
     })),
   );
+  if (error) throw error;
+}
+
+interface NotificationRow {
+  id: string;
+  kind: AppNotification["kind"];
+  title: string;
+  body: string | null;
+  event_id: string | null;
+  actor_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+const toNotification = (row: NotificationRow): AppNotification => ({
+  id: row.id,
+  kind: row.kind,
+  title: row.title,
+  body: row.body ?? undefined,
+  eventId: row.event_id ?? undefined,
+  actorId: row.actor_id ?? undefined,
+  readAt: row.read_at ?? undefined,
+  createdAt: row.created_at,
+});
+
+export async function markNotificationsRead(supabase: Client, ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await supabase
+    .from("cc_notifications")
+    .update({ read_at: new Date().toISOString() })
+    .in("id", ids);
+  if (error) throw error;
+}
+
+export async function clearNotifications(supabase: Client, ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await supabase.from("cc_notifications").delete().in("id", ids);
   if (error) throw error;
 }
 
@@ -266,7 +314,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, notifications, feeds] =
     await Promise.all([
       supabase.from("cc_profiles").select("id,email,display_name,avatar_color,avatar_url"),
       supabase.from("cc_groups").select("id,name,owner_id"),
@@ -288,7 +336,14 @@ export async function loadWorkspace(
         .from("cc_invitations")
         .select("id,email,token,invited_by,group_id,event_id,status,error,created_at")
         .order("created_at", { ascending: false }),
-      supabase.from("cc_event_reminders").select("id,event_id,minutes_before,channel"),
+      supabase
+        .from("cc_event_reminders")
+        .select("id,event_id,minutes_before,channel,user_id"),
+      supabase
+        .from("cc_notifications")
+        .select("id,kind,title,body,event_id,actor_id,read_at,created_at")
+        .order("created_at", { ascending: false })
+        .limit(50),
       supabase
         .from("cc_calendar_feeds")
         .select(
@@ -297,7 +352,7 @@ export async function loadWorkspace(
         .order("created_at"),
     ]);
 
-  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, feeds]
+  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, notifications, feeds]
     .map((r) => r.error)
     .find(Boolean);
   if (firstError) throw firstError;
@@ -362,6 +417,7 @@ export async function loadWorkspace(
     })),
     invites: ((invites.data ?? []) as InviteRow[]).map(toInvite),
     feeds: ((feeds.data ?? []) as FeedRow[]).map(toFeed),
+    notifications: ((notifications.data ?? []) as NotificationRow[]).map(toNotification),
   };
 }
 
@@ -394,7 +450,7 @@ export async function insertEvent(supabase: Client, draft: EventDraft, userId: s
   await Promise.all([
     setShares(supabase, eventId, draft.sharedWith, userId),
     linkAttachments(supabase, eventId, draft.attachments ?? [], userId),
-    setReminders(supabase, eventId, draft.reminders ?? []),
+    setReminders(supabase, eventId, draft.reminders ?? [], userId),
   ]);
   return eventId;
 }
@@ -413,7 +469,7 @@ export async function updateEvent(
   await Promise.all([
     setShares(supabase, id, draft.sharedWith, userId),
     linkAttachments(supabase, id, draft.attachments ?? [], userId),
-    setReminders(supabase, id, draft.reminders ?? []),
+    setReminders(supabase, id, draft.reminders ?? [], userId),
   ]);
 }
 

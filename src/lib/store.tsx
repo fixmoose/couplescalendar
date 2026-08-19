@@ -25,7 +25,7 @@ import type {
   Invite,
   Person,
   Privacy,
-  ReminderChannel,
+  ReminderDraft,
 } from "./types";
 
 /**
@@ -108,10 +108,11 @@ interface StoreValue extends Data {
   setEventColor: (eventId: string, color: ColorKey | undefined) => void;
   setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
   setEventImportance: (eventId: string, importance: Importance) => void;
-  setEventReminders: (
-    eventId: string,
-    reminders: { minutesBefore: number; channel: ReminderChannel }[],
-  ) => void;
+  setEventReminders: (eventId: string, reminders: ReminderDraft[]) => void;
+  /** Bell menu. */
+  unreadNotifications: number;
+  markNotificationsRead: (ids: string[]) => void;
+  clearNotifications: (ids: string[]) => void;
   attachToEvent: (eventId: string, attachments: Attachment[]) => void;
   removeAttachment: (eventId: string, attachmentId: string) => void;
   toggleCalendar: (id: string) => void;
@@ -161,6 +162,7 @@ const EMPTY: Data = {
   events: [],
   invites: [],
   feeds: [],
+  notifications: [],
   busyHidden: [],
 };
 
@@ -503,13 +505,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   reminders: reminders.map((r, i) => ({
                     id: e.reminders?.[i]?.id ?? `tmp_${i}`,
                     eventId,
-                    ...r,
+                    minutesBefore: r.minutesBefore,
+                    channel: r.channel,
+                    userId: r.forEveryone ? undefined : userId,
                   })),
                 }
               : e,
           ),
           async () => {
-            await db.setReminders(supabase, eventId, reminders);
+            await db.setReminders(supabase, eventId, reminders, userId);
             await refresh();
           },
         ),
@@ -787,6 +791,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         write(
           (s) => ({ ...s, invites: s.invites.filter((i) => i.id !== id) }),
           () => db.deleteInvite(supabase, id),
+        ),
+
+      unreadNotifications: d.notifications.filter((n) => !n.readAt).length,
+
+      markNotificationsRead: (ids) =>
+        write(
+          (s) => ({
+            ...s,
+            notifications: s.notifications.map((n) =>
+              ids.includes(n.id) ? { ...n, readAt: new Date().toISOString() } : n,
+            ),
+          }),
+          () => db.markNotificationsRead(supabase, ids),
+        ),
+
+      clearNotifications: (ids) =>
+        write(
+          (s) => ({
+            ...s,
+            notifications: s.notifications.filter((n) => !ids.includes(n.id)),
+          }),
+          () => db.clearNotifications(supabase, ids),
         ),
 
       togglePersonBusy: (personId) => {
