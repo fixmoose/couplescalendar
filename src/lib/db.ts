@@ -530,20 +530,36 @@ const eventPayload = (draft: EventDraft) => ({
   importance: draft.importance ?? "normal",
 });
 
-export async function insertEvent(supabase: Client, draft: EventDraft, userId: string) {
-  const { data, error } = await supabase
-    .from("cc_events")
-    .insert(eventPayload(draft))
-    .select("id")
-    .single();
-  if (error) throw error;
+/** Names the step that failed, so a refusal says which write was refused. */
+async function step<T>(what: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    if (e && typeof e === "object") {
+      (e as { message?: string }).message = `${what}: ${(e as { message?: string }).message ?? e}`;
+    }
+    throw e;
+  }
+}
 
-  const eventId = data.id as string;
-  await Promise.all([
-    setShares(supabase, eventId, draft.sharedWith, userId),
+export async function insertEvent(supabase: Client, draft: EventDraft, userId: string) {
+  const eventId = await step("creating the event", async () => {
+    const { data, error } = await supabase
+      .from("cc_events")
+      .insert(eventPayload(draft))
+      .select("id")
+      .single();
+    if (error) throw error;
+    return data.id as string;
+  });
+
+  await step("sharing it", () => setShares(supabase, eventId, draft.sharedWith, userId));
+  await step("attaching files", () =>
     linkAttachments(supabase, eventId, draft.attachments ?? [], userId),
+  );
+  await step("saving reminders", () =>
     setReminders(supabase, eventId, draft.reminders ?? [], userId),
-  ]);
+  );
   return eventId;
 }
 
@@ -553,16 +569,21 @@ export async function updateEvent(
   draft: EventDraft,
   userId: string,
 ) {
-  const { error } = await supabase
-    .from("cc_events")
-    .update(eventPayload(draft))
-    .eq("id", id);
-  if (error) throw error;
-  await Promise.all([
-    setShares(supabase, id, draft.sharedWith, userId),
+  await step("updating the event", async () => {
+    const { error } = await supabase
+      .from("cc_events")
+      .update(eventPayload(draft))
+      .eq("id", id);
+    if (error) throw error;
+  });
+
+  await step("sharing it", () => setShares(supabase, id, draft.sharedWith, userId));
+  await step("attaching files", () =>
     linkAttachments(supabase, id, draft.attachments ?? [], userId),
+  );
+  await step("saving reminders", () =>
     setReminders(supabase, id, draft.reminders ?? [], userId),
-  ]);
+  );
 }
 
 export async function patchEvent(
