@@ -157,6 +157,11 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         Continue with Google
       </button>
 
+      <p className="mt-2 text-center text-[11px] leading-relaxed text-ink-faint">
+        Google will ask you to continue to CouplesCalendar. We only ever see
+        your name, email and picture.
+      </p>
+
       <div className="my-5 flex items-center gap-3">
         <span className="h-px flex-1 bg-line" />
         <span className="text-[11px] tracking-wide text-ink-faint uppercase">or</span>
