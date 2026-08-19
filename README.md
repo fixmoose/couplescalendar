@@ -207,6 +207,22 @@ values go into Vercel (Project → Settings → Environment Variables):
 
 Optional: `UNIONE_FROM_EMAIL`, `UNIONE_FROM_NAME`.
 
+## Lists on an event
+
+Every event can carry a list, typed as **To-do**, **Shopping** or **Packing** —
+the type decides the icon and the wording, so a reminder says "3 to buy" rather
+than "3 to do".
+
+Items take free-text quantities ("2 ×", "500g", "a case of") and can be
+assigned to anyone on the event by clicking the avatar slot. **Anyone who can
+see the event in full can work the list** — whoever is at the shop ticks it
+off, which is the point of sharing one — and ticking is broadcast over Realtime
+so it lands on the other person's screen straight away.
+
+The grid shows a progress chip (`🛒 1/4`) beside the paperclip; the day panel
+shows the whole list inline and lets you tick from there; and a reminder that
+fires counts what is still outstanding.
+
 ## Reminders
 
 Every new event starts with two: **24 hours** and **2 hours** before. Change

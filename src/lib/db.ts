@@ -5,6 +5,7 @@ import { COLOR_KEYS } from "./colors";
 import type {
   AppNotification,
   Attachment,
+  EventItem,
   EventSubscription,
   Calendar,
   CalendarEvent,
@@ -14,6 +15,7 @@ import type {
   Group,
   Importance,
   Invite,
+  ListKind,
   Person,
   Privacy,
   Reminder,
@@ -92,6 +94,7 @@ interface FeedRow {
   importance: Importance;
   created_by: string;
   feed_id: string | null;
+  list_kind: ListKind | null;
   masked: boolean;
 }
 
@@ -248,6 +251,57 @@ const toNotification = (row: NotificationRow): AppNotification => ({
   createdAt: row.created_at,
 });
 
+interface ItemRow {
+  id: string;
+  event_id: string;
+  text: string;
+  quantity: string | null;
+  assigned_to: string | null;
+  done: boolean;
+  done_by: string | null;
+  position: number;
+}
+
+const toItem = (row: ItemRow): EventItem => ({
+  id: row.id,
+  eventId: row.event_id,
+  text: row.text,
+  quantity: row.quantity ?? undefined,
+  assignedTo: row.assigned_to ?? undefined,
+  done: row.done,
+  doneBy: row.done_by ?? undefined,
+  position: row.position,
+});
+
+export async function insertItem(
+  supabase: Client,
+  eventId: string,
+  item: { text: string; quantity?: string; assignedTo?: string; position: number },
+) {
+  const { error } = await supabase.from("cc_event_items").insert({
+    event_id: eventId,
+    text: item.text,
+    quantity: item.quantity ?? null,
+    assigned_to: item.assignedTo ?? null,
+    position: item.position,
+  });
+  if (error) throw error;
+}
+
+export async function patchItem(
+  supabase: Client,
+  id: string,
+  changes: Record<string, unknown>,
+) {
+  const { error } = await supabase.from("cc_event_items").update(changes).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteItem(supabase: Client, id: string) {
+  const { error } = await supabase.from("cc_event_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
 /** The viewer's own delivery choice for one event. */
 export async function setSubscription(
   supabase: Client,
@@ -330,7 +384,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, notifications, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, items, notifications, feeds] =
     await Promise.all([
       supabase.from("cc_profiles").select("id,email,display_name,avatar_color,avatar_url"),
       supabase.from("cc_groups").select("id,name,owner_id"),
@@ -342,7 +396,7 @@ export async function loadWorkspace(
       supabase
         .from("cc_calendar_feed")
         .select(
-          "id,calendar_id,owner_id,title,notes,location,starts_at,ends_at,all_day,color,privacy,importance,created_by,feed_id,masked",
+          "id,calendar_id,owner_id,title,notes,location,starts_at,ends_at,all_day,color,privacy,importance,created_by,feed_id,list_kind,masked",
         ),
       supabase.from("cc_event_guests").select("event_id,user_id"),
       supabase
@@ -357,6 +411,10 @@ export async function loadWorkspace(
         .select("id,event_id,minutes_before,channel,user_id"),
       supabase.from("cc_event_subscriptions").select("event_id,email,mobile"),
       supabase
+        .from("cc_event_items")
+        .select("id,event_id,text,quantity,assigned_to,done,done_by,position")
+        .order("position"),
+      supabase
         .from("cc_notifications")
         .select("id,kind,title,body,event_id,actor_id,read_at,created_at")
         .order("created_at", { ascending: false })
@@ -369,7 +427,7 @@ export async function loadWorkspace(
         .order("created_at"),
     ]);
 
-  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, notifications, feeds]
+  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, items, notifications, feeds]
     .map((r) => r.error)
     .find(Boolean);
   if (firstError) throw firstError;
@@ -399,6 +457,11 @@ export async function loadWorkspace(
     mobile: boolean;
   }[]) {
     subscriptionByEvent.set(row.event_id, { email: row.email, mobile: row.mobile });
+  }
+
+  const itemsByEvent = new Map<string, EventItem[]>();
+  for (const row of (items.data ?? []) as ItemRow[]) {
+    itemsByEvent.set(row.event_id, [...(itemsByEvent.get(row.event_id) ?? []), toItem(row)]);
   }
 
   const filesByEvent = new Map<string, Attachment[]>();
@@ -440,6 +503,8 @@ export async function loadWorkspace(
       feedId: row.feed_id ?? undefined,
       reminders: remindersByEvent.get(row.id),
       subscription: subscriptionByEvent.get(row.id),
+      listKind: (row.list_kind ?? "todo") as ListKind,
+      items: itemsByEvent.get(row.id),
       masked: row.masked || undefined,
     })),
     invites: ((invites.data ?? []) as InviteRow[]).map(toInvite),

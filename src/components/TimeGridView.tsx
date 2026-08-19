@@ -18,6 +18,7 @@ import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
 import { EventPill, useEventColor } from "./EventPill";
 import { AttachmentBadge } from "./Attachments";
+import { ListBadge } from "./EventList";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { LocationLink } from "./SmartText";
 import { useFileDrop } from "./useFileDrop";
@@ -119,6 +120,7 @@ function Block({
             <AlertTriangle size={12} />
           </span>
         )}
+        <ListBadge event={event} className="opacity-80" />
         <AttachmentBadge
           count={event.attachments?.length ?? 0}
           attachments={event.attachments}

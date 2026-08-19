@@ -21,7 +21,9 @@ import type {
   CalendarEvent,
   ColorKey,
   EventDraft,
+  EventItem,
   Importance,
+  ListKind,
   Invite,
   Person,
   Privacy,
@@ -109,6 +111,18 @@ interface StoreValue extends Data {
   setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
   setEventImportance: (eventId: string, importance: Importance) => void;
   setEventReminders: (eventId: string, reminders: ReminderDraft[]) => void;
+  /** The list attached to an event — anyone who can see it may work it. */
+  setListKind: (eventId: string, kind: ListKind) => void;
+  addItem: (
+    eventId: string,
+    item: { text: string; quantity?: string; assignedTo?: string },
+  ) => void;
+  updateItem: (
+    eventId: string,
+    itemId: string,
+    changes: Partial<Pick<EventItem, "text" | "quantity" | "assignedTo" | "done">>,
+  ) => void;
+  removeItem: (eventId: string, itemId: string) => void;
   /** Bell menu. */
   unreadNotifications: number;
   markNotificationsRead: (ids: string[]) => void;
@@ -231,6 +245,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reload,
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "cc_events" }, reload)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cc_event_items" },
+        reload,
+      )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cc_event_shares" },
@@ -558,6 +577,83 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             await db.setReminders(supabase, eventId, reminders, userId);
             await refresh();
           },
+        ),
+
+      setListKind: (eventId, kind) =>
+        write(
+          mapEvents((e) => (e.id === eventId ? { ...e, listKind: kind } : e)),
+          () => db.patchEvent(supabase, eventId, { list_kind: kind }),
+        ),
+
+      addItem: (eventId, item) => {
+        const existing = d.events.find((e) => e.id === eventId)?.items ?? [];
+        const position = existing.length
+          ? Math.max(...existing.map((i) => i.position)) + 1
+          : 0;
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? {
+                  ...e,
+                  items: [
+                    ...(e.items ?? []),
+                    {
+                      id: `tmp_${crypto.randomUUID()}`,
+                      eventId,
+                      done: false,
+                      position,
+                      ...item,
+                    },
+                  ],
+                }
+              : e,
+          ),
+          async () => {
+            await db.insertItem(supabase, eventId, { ...item, position });
+            await refresh();
+          },
+        );
+      },
+
+      updateItem: (eventId, itemId, changes) =>
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? {
+                  ...e,
+                  items: (e.items ?? []).map((i) =>
+                    i.id === itemId ? { ...i, ...changes } : i,
+                  ),
+                }
+              : e,
+          ),
+          () =>
+            db.patchItem(supabase, itemId, {
+              ...(changes.text !== undefined ? { text: changes.text } : {}),
+              ...(changes.quantity !== undefined
+                ? { quantity: changes.quantity || null }
+                : {}),
+              ...(changes.assignedTo !== undefined
+                ? { assigned_to: changes.assignedTo || null }
+                : {}),
+              ...(changes.done !== undefined
+                ? {
+                    done: changes.done,
+                    done_by: changes.done ? userId : null,
+                    done_at: changes.done ? new Date().toISOString() : null,
+                  }
+                : {}),
+            }),
+        ),
+
+      removeItem: (eventId, itemId) =>
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? { ...e, items: (e.items ?? []).filter((i) => i.id !== itemId) }
+              : e,
+          ),
+          () => db.deleteItem(supabase, itemId),
         ),
 
       attachToEvent: (eventId, attachments) =>

@@ -9,6 +9,7 @@ import { occursOn, rangeLabel } from "@/lib/date";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
 import { AttachmentBadge } from "./Attachments";
+import { EventList, ListBadge } from "./EventList";
 import { useEventColor } from "./EventPill";
 import { PeopleStack, useEventPeople } from "./Participants";
 import { LocationLink } from "./SmartText";
@@ -62,6 +63,7 @@ function Item({
         {event.importance === "urgent" && (
           <AlertTriangle size={13} className="shrink-0 text-[#d1443c]" />
         )}
+        <ListBadge event={event} className="text-ink-faint" />
         <AttachmentBadge
           count={event.attachments?.length ?? 0}
           attachments={event.attachments}
@@ -84,6 +86,15 @@ function Item({
         <div className="mt-1 flex items-center gap-1 pl-[18px] text-[12px]">
           <MapPin size={11} className="shrink-0 text-ink-faint" />
           <LocationLink location={event.location} showIcon={false} />
+        </div>
+      )}
+
+      {!masked && (event.items?.length ?? 0) > 0 && (
+        <div
+          className="mt-2 border-t border-line pt-2 pl-[18px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <EventList event={event} compact />
         </div>
       )}
 

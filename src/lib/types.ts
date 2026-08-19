@@ -105,6 +105,9 @@ export interface CalendarEvent {
   reminders?: Reminder[];
   /** The viewer's own delivery choice for this event. */
   subscription?: EventSubscription;
+  /** What the attached list is: things to do, to buy, or to pack. */
+  listKind?: ListKind;
+  items?: EventItem[];
   /**
    * Set by the store when the viewer may only see that this time is taken.
    * Masked events carry no details — see maskEvent() in lib/access.ts.
@@ -153,6 +156,21 @@ export interface Reminder {
   channel: ReminderChannel;
   /** Undefined means everyone who can see the event. */
   userId?: string;
+}
+
+export type ListKind = "todo" | "shopping" | "packing";
+
+/** One line on an event's list: a thing to do, buy or pack. */
+export interface EventItem {
+  id: string;
+  eventId: string;
+  text: string;
+  /** Free text — "2 ×", "500g", "a case of". */
+  quantity?: string;
+  assignedTo?: string;
+  done: boolean;
+  doneBy?: string;
+  position: number;
 }
 
 /** How one person wants to hear about one event. In-app is always on. */

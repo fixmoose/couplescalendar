@@ -7,6 +7,7 @@ import { timeLabel } from "@/lib/date";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent, ColorKey } from "@/lib/types";
 import { AttachmentBadge } from "./Attachments";
+import { ListBadge } from "./EventList";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
 
@@ -100,6 +101,7 @@ export function EventPill({
           className={clsx("shrink-0", banner ? "opacity-90" : "text-[#d1443c]")}
         />
       )}
+      <ListBadge event={event} className={banner ? "opacity-90" : "text-ink-faint"} />
       <AttachmentBadge
         count={event.attachments?.length ?? 0}
         attachments={event.attachments}

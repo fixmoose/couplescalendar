@@ -11,6 +11,7 @@ import type { Attachment, CalendarEvent, EventDraft } from "@/lib/types";
 import { AttachmentList } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
+import { EventList } from "./EventList";
 import { PrivacyPicker } from "./PrivacyPicker";
 import { RemindersField } from "./RemindersField";
 import { ShareField } from "./ShareField";
@@ -226,6 +227,17 @@ export function EventDialog({
           />
         </Field>
 
+        {event ? (
+          <Field label="List">
+            <EventList event={event} />
+          </Field>
+        ) : (
+          <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[12px] text-ink-faint">
+            Save the event and a to-do, shopping or packing list can be attached
+            to it.
+          </p>
+        )}
+
         {event && <NotifyMeField event={event} />}
 
         <Field label="Who else can see it">
@@ -383,6 +395,12 @@ function SharedEventView({
             />
           </Field>
         )}
+        {(event.items?.length ?? 0) > 0 && (
+          <Field label="List">
+            <EventList event={event} />
+          </Field>
+        )}
+
         <NotifyMeField event={event} />
 
         <Field label="Remind me">

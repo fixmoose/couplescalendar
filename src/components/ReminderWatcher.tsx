@@ -1,10 +1,11 @@
 "use client";
 
 import { format } from "date-fns";
-import { Bell, BellOff, Clock, MapPin } from "lucide-react";
+import { Bell, BellOff, Clock, ListTodo, MapPin } from "lucide-react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent, Reminder } from "@/lib/types";
+import { listMeta } from "./EventList";
 import { describeReminder } from "./RemindersField";
 import { Button } from "./ui";
 
@@ -173,6 +174,17 @@ export function ReminderWatcher() {
             {event.location}
           </p>
         )}
+        {(() => {
+          const left = (event.items ?? []).filter((i) => !i.done).length;
+          if (!left) return null;
+          return (
+            <p className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-brand">
+              <ListTodo size={14} />
+              {listMeta(event.listKind).outstanding(left)}
+            </p>
+          );
+        })()}
+
         {!isMine && author && (
           <p className="mt-1 text-[12px] text-ink-faint">Set by {author.name}</p>
         )}
