@@ -53,7 +53,7 @@ export function GroupDialog({
       store.renameGroup(group.id, name);
       store.setGroupMembers(group.id, members);
     } else {
-      store.createGroup(name, members, withCalendar);
+      void store.createGroup(name, members, withCalendar);
     }
     onClose();
   };

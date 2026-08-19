@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Check, Copy, Mail, Send, TriangleAlert } from "lucide-react";
+import { Check, Copy, Mail, Plus, Send, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { publicUrl } from "@/lib/site";
 import { useStore } from "@/lib/store";
@@ -26,6 +26,15 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
   const [sent, setSent] = useState<Invite[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [makingGroup, setMakingGroup] = useState(false);
+  const [groupName, setGroupName] = useState("");
+
+  /** Create a group inline and select it, so the invite can carry it. */
+  const createGroup = async () => {
+    const created = await store.createGroup(groupName.trim(), []);
+    if (created) setGroupId(created);
+    setMakingGroup(false);
+  };
 
   const emails = parseEmails(raw);
   const pending = store.invites.filter((i) => i.status !== "accepted");
@@ -122,18 +131,69 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
         </Field>
 
         <Field label="Add them to a group (optional)">
-          <select
-            value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-            className={inputClass}
-          >
-            <option value="">No group for now</option>
-            {store.groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+          {makingGroup ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void createGroup();
+                  }
+                  if (e.key === "Escape") setMakingGroup(false);
+                }}
+                placeholder="Family, Us, Flatmates…"
+                className={inputClass}
+              />
+              <Button
+                variant="primary"
+                onClick={() => void createGroup()}
+                disabled={!groupName.trim()}
+                className="shrink-0"
+              >
+                Create
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setMakingGroup(false)}
+                className="shrink-0"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <select
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">No group for now</option>
+                {store.groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setGroupName("");
+                  setMakingGroup(true);
+                }}
+                title="Create a group"
+                className="shrink-0"
+              >
+                <Plus size={15} /> New group
+              </Button>
+            </div>
+          )}
+          <p className="mt-1.5 text-[12px] text-ink-faint">
+            A group is just a name for several people, so you can share with all
+            of them at once. Everyone invited here joins it when they accept.
+          </p>
         </Field>
 
         <Field label="Personal note (optional)">

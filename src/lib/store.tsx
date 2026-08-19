@@ -122,7 +122,11 @@ interface StoreValue extends Data {
   setCalendarPrivacy: (id: string, privacy: Privacy) => void;
   updateCalendarGroup: (id: string, groupId: string | undefined) => void;
   deleteCalendar: (id: string) => void;
-  createGroup: (name: string, memberIds: string[], withCalendar?: boolean) => void;
+  createGroup: (
+    name: string,
+    memberIds: string[],
+    withCalendar?: boolean,
+  ) => Promise<string | undefined>;
   setGroupMembers: (groupId: string, memberIds: string[]) => void;
   renameGroup: (groupId: string, name: string) => void;
   deleteGroup: (groupId: string) => void;
@@ -612,22 +616,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       /* ---------------- groups ---------------- */
 
-      createGroup: (name, memberIds, withCalendar = false) =>
-        write(
-          (s) => s,
-          async () => {
-            const groupId = await db.insertGroup(supabase, name, memberIds, userId);
-            if (withCalendar) {
-              await db.insertCalendar(supabase, {
-                name: name.trim() || "Shared",
-                color: "violet",
-                groupId,
-                privacy: "details",
-              });
-            }
-            await refresh();
-          },
-        ),
+      createGroup: async (name, memberIds, withCalendar = false) => {
+        try {
+          const groupId = await db.insertGroup(supabase, name, memberIds, userId);
+          if (withCalendar) {
+            await db.insertCalendar(supabase, {
+              name: name.trim() || "Shared",
+              color: "violet",
+              groupId,
+              privacy: "details",
+            });
+          }
+          await refresh();
+          return groupId;
+        } catch (e) {
+          setError(describe(e));
+          return undefined;
+        }
+      },
 
       setGroupMembers: (groupId, memberIds) =>
         write(
