@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Check, Copy, Mail, Plus, Send, TriangleAlert } from "lucide-react";
+import { Check, CheckCircle2, Copy, Mail, Plus, Send, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { publicUrl } from "@/lib/site";
 import { useStore } from "@/lib/store";
@@ -26,6 +26,8 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
   const [sent, setSent] = useState<Invite[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  /** Set once the mail is actually away; the window closes itself. */
+  const [delivered, setDelivered] = useState<string[] | null>(null);
   const [makingGroup, setMakingGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
 
@@ -69,6 +71,14 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
 
       if (response.ok) {
         for (const invite of invites) store.updateInvite(invite.id, { status: "sent" });
+        setSending(false);
+        setSent(invites);
+        setRaw("");
+        // Nothing left to do once it is away, so get out of the way — but show
+        // the confirmation long enough to be read.
+        setDelivered(invites.map((i) => i.email));
+        window.setTimeout(onClose, 1400);
+        return;
       } else {
         // 503 means mail is not configured yet — the invitation itself is
         // perfectly good, so it stays pending rather than being marked failed.
@@ -95,6 +105,24 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
     setCopied(invite.id);
     window.setTimeout(() => setCopied(null), 1500);
   };
+
+  if (delivered) {
+    return (
+      <Modal title="Invitation sent" onClose={onClose} width={420}>
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <CheckCircle2 size={30} className="text-[#3f9142]" />
+          <p className="text-[15px] font-medium text-ink">
+            {delivered.length === 1
+              ? `Invitation sent to ${delivered[0]}`
+              : `${delivered.length} invitations sent`}
+          </p>
+          <p className="text-[13px] text-ink-muted">
+            They join your calendar as soon as they accept.
+          </p>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
