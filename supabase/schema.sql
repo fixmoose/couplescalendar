@@ -402,6 +402,65 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Diagnostics
+-- ---------------------------------------------------------------------------
+
+-- 1. A read-only report of what row level security actually looks like, so the
+--    policies can be inspected from outside the SQL editor. Service role only:
+--    policy expressions describe the locks, so they are not for the public.
+create or replace function cc_policy_report()
+returns table (
+  table_name text,
+  policy_name text,
+  command text,
+  roles text,
+  using_expression text,
+  check_expression text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    tablename::text,
+    policyname::text,
+    cmd::text,
+    array_to_string(roles, ',')::text,
+    coalesce(qual, '')::text,
+    coalesce(with_check, '')::text
+  from pg_policies
+  where schemaname = 'public' and tablename like 'cc\_%'
+  order by tablename, cmd, policyname;
+$$;
+
+revoke all on function cc_policy_report() from public, anon, authenticated;
+grant execute on function cc_policy_report() to service_role;
+
+-- Which tables have row level security switched on at all.
+create or replace function cc_rls_report()
+returns table (table_name text, rls_enabled boolean, policy_count bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    c.relname::text,
+    c.relrowsecurity,
+    (select count(*) from pg_policies p
+      where p.schemaname = 'public' and p.tablename = c.relname)
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind = 'r' and c.relname like 'cc\_%'
+  order by c.relname;
+$$;
+
+revoke all on function cc_rls_report() from public, anon, authenticated;
+grant execute on function cc_rls_report() to service_role;
+
+
+-- ---------------------------------------------------------------------------
 -- Row level security
 -- ---------------------------------------------------------------------------
 
