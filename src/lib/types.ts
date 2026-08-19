@@ -103,6 +103,8 @@ export interface CalendarEvent {
   feedId?: string;
   /** When to remind everyone who can see this event. */
   reminders?: Reminder[];
+  /** The viewer's own delivery choice for this event. */
+  subscription?: EventSubscription;
   /**
    * Set by the store when the viewer may only see that this time is taken.
    * Masked events carry no details — see maskEvent() in lib/access.ts.
@@ -151,6 +153,12 @@ export interface Reminder {
   channel: ReminderChannel;
   /** Undefined means everyone who can see the event. */
   userId?: string;
+}
+
+/** How one person wants to hear about one event. In-app is always on. */
+export interface EventSubscription {
+  email: boolean;
+  mobile: boolean;
 }
 
 /** A message waiting in the bell menu. */

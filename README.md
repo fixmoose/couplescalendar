@@ -232,6 +232,18 @@ forgotten, so a share still greets you after a refresh, a new login or on
 another device. The bell in the top bar carries the unread count and opens the
 list; clicking one jumps to the event.
 
+Notifications arrive **live**: the store subscribes to Supabase Realtime on
+`cc_notifications`, `cc_events` and `cc_event_shares`, so a share from your
+partner lights the bell without a refresh. Realtime honours row level security,
+so a client is only sent changes to rows it could have selected anyway — and
+rather than patching state from the payload, a change triggers a re-read, which
+keeps busy masking correct (the masking lives in the view, not the raw row).
+
+Each person also picks, **per event**, how they hear about it: in the app
+(always), by email (opt-in), or on mobile (waiting on the app). Email copies go
+out from the same cron, claimed with `emailed_at` before sending so nothing is
+sent twice.
+
 Browser reminders fire from the open tab (`ReminderWatcher`), which is the
 honest limit of notifications without a service worker and push subscriptions;
 that is the next step. When one fires you get the event, the time, the place

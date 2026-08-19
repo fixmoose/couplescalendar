@@ -156,12 +156,92 @@ export async function GET(request: Request) {
     }
   }
 
+  const mailed = await flushNotificationEmails(admin, apiKey);
+
   return NextResponse.json({
     considered: rows.length,
     due: due.length,
     sent,
+    notificationsEmailed: mailed,
     ...(skipped.length ? { skippedNoMailKey: skipped.length } : {}),
   });
+}
+
+/**
+ * Emails the notifications whose recipient asked to hear about that event by
+ * email. In-app notifications are already delivered — this is the extra copy
+ * for people who opted in, marked with emailed_at so it goes once.
+ */
+async function flushNotificationEmails(
+  admin: ReturnType<typeof createAdminClient>,
+  apiKey: string | undefined,
+) {
+  const { data } = await admin
+    .from("cc_notifications")
+    .select("id,user_id,event_id,title,body,created_at")
+    .is("emailed_at", null)
+    .gte("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
+    .limit(100);
+
+  let mailed = 0;
+
+  for (const note of data ?? []) {
+    // Claim it first, so a slow send cannot be duplicated by the next run.
+    const { error: claimError } = await admin
+      .from("cc_notifications")
+      .update({ emailed_at: new Date().toISOString() })
+      .eq("id", note.id)
+      .is("emailed_at", null);
+    if (claimError) continue;
+
+    if (!note.event_id || !apiKey) continue;
+
+    const { data: subscription } = await admin
+      .from("cc_event_subscriptions")
+      .select("email")
+      .eq("event_id", note.event_id)
+      .eq("user_id", note.user_id)
+      .maybeSingle();
+    if (!subscription?.email) continue;
+
+    const { data: profile } = await admin
+      .from("cc_profiles")
+      .select("email")
+      .eq("id", note.user_id)
+      .single();
+    if (!profile?.email) continue;
+
+    await fetch(
+      process.env.UNIONE_API_URL ??
+        "https://us1.unione.io/en/transactional/api/v1/email/send.json",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
+        body: JSON.stringify({
+          message: {
+            recipients: [{ email: profile.email }],
+            template_engine: "simple",
+            subject: note.title,
+            from_email: process.env.UNIONE_FROM_EMAIL ?? "no-reply@docmaker.studio",
+            from_name: process.env.UNIONE_FROM_NAME ?? "CouplesCalendar",
+            body: {
+              html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px">
+                <h2 style="margin:0 0 6px;font-size:18px;color:#1a1a1e">${escapeHtml(note.title)}</h2>
+                ${note.body ? `<p style="margin:0;color:#6b6b76;font-size:15px">${escapeHtml(note.body)}</p>` : ""}
+                <p style="margin:18px 0 0"><a href="https://calendar.docmaker.studio/calendar" style="background:#dc6b15;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px">Open the calendar</a></p>
+              </div>`,
+            },
+            track_links: 0,
+            track_read: 0,
+          },
+        }),
+      },
+    ).catch(() => null);
+
+    mailed += 1;
+  }
+
+  return mailed;
 }
 
 function escapeHtml(value: string) {

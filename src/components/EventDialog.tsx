@@ -2,7 +2,7 @@
 import clsx from "clsx";
 
 import { format } from "date-fns";
-import { CopyPlus, Paperclip, Trash2 } from "lucide-react";
+import { Bell, Check, CopyPlus, Mail, Paperclip, Smartphone, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes } from "@/lib/files";
@@ -226,6 +226,8 @@ export function EventDialog({
           />
         </Field>
 
+        {event && <NotifyMeField event={event} />}
+
         <Field label="Who else can see it">
           <PrivacyPicker
             value={form.privacy}
@@ -246,6 +248,53 @@ export function EventDialog({
         </Field>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * In-app notifications always arrive; email is opt-in per event, so you can
+ * follow the one that matters without being mailed about all of them.
+ */
+function NotifyMeField({ event }: { event: CalendarEvent }) {
+  const store = useStore();
+  const subscription = event.subscription ?? { email: false, mobile: false };
+
+  return (
+    <Field label="Notify me about changes">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] text-ink-muted">
+          <Bell size={13} /> In the app
+          <span className="text-[11px] text-ink-faint">always</span>
+        </span>
+
+        <button
+          type="button"
+          onClick={() =>
+            store.setEventSubscription(event.id, { email: !subscription.email })
+          }
+          className={clsx(
+            "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] transition",
+            subscription.email
+              ? "border-brand/50 bg-brand-soft font-medium text-brand"
+              : "border-line text-ink-muted hover:bg-surface-2 hover:text-ink",
+          )}
+        >
+          <Mail size={13} /> Email me
+          {subscription.email && <Check size={13} />}
+        </button>
+
+        <span
+          title="Needs the mobile app, which does not exist yet"
+          className="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-faint"
+        >
+          <Smartphone size={13} /> Mobile
+          <span className="text-[11px]">soon</span>
+        </span>
+      </div>
+      <p className="mt-1.5 text-[12px] text-ink-faint">
+        Your own choice — everyone on this event picks their own.
+      </p>
+    </Field>
   );
 }
 
@@ -334,6 +383,8 @@ function SharedEventView({
             />
           </Field>
         )}
+        <NotifyMeField event={event} />
+
         <Field label="Remind me">
           <RemindersField
             reminders={(event.reminders ?? []).map((r) => ({

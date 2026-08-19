@@ -112,6 +112,11 @@ interface StoreValue extends Data {
   /** Bell menu. */
   unreadNotifications: number;
   markNotificationsRead: (ids: string[]) => void;
+  /** How the viewer wants to hear about one event. */
+  setEventSubscription: (
+    eventId: string,
+    patch: Partial<{ email: boolean; mobile: boolean }>,
+  ) => void;
   clearNotifications: (ids: string[]) => void;
   attachToEvent: (eventId: string, attachments: Attachment[]) => void;
   removeAttachment: (eventId: string, attachmentId: string) => void;
@@ -201,6 +206,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       alive = false;
     };
   }, [supabase, load]);
+
+  /**
+   * Live updates. Supabase applies row level security to realtime too, so we
+   * are only told about rows we could have read anyway. Rather than patching
+   * state from the payload we re-read, which keeps busy masking correct — the
+   * masking lives in the cc_calendar_feed view, not in the raw row.
+   */
+  useEffect(() => {
+    if (!user) return;
+    let timer: number | null = null;
+    const reload = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void load(user.id).catch(() => {});
+      }, 400);
+    };
+
+    const channel = supabase
+      .channel("cc-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cc_notifications", filter: `user_id=eq.${user.id}` },
+        reload,
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "cc_events" }, reload)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cc_event_shares" },
+        reload,
+      )
+      .subscribe();
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [supabase, user, load]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
@@ -794,6 +836,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ),
 
       unreadNotifications: d.notifications.filter((n) => !n.readAt).length,
+
+      setEventSubscription: (eventId, patch) =>
+        write(
+          mapEvents((e) =>
+            e.id === eventId
+              ? {
+                  ...e,
+                  subscription: {
+                    email: false,
+                    mobile: false,
+                    ...e.subscription,
+                    ...patch,
+                  },
+                }
+              : e,
+          ),
+          () =>
+            db.setSubscription(supabase, eventId, {
+              email: false,
+              mobile: false,
+              ...d.events.find((e) => e.id === eventId)?.subscription,
+              ...patch,
+            }),
+        ),
 
       markNotificationsRead: (ids) =>
         write(
