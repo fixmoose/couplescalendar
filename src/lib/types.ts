@@ -25,6 +25,8 @@ export interface Person {
   avatarColor: ColorKey;
   /** Google profile picture, when the account came from OAuth. */
   avatarUrl?: string;
+  /** Whether events shared with them mark them busy to their groups. */
+  sharedBusy?: boolean;
 }
 
 export interface Group {

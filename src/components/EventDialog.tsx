@@ -2,7 +2,7 @@
 import clsx from "clsx";
 
 import { format } from "date-fns";
-import { Bell, Check, CopyPlus, Mail, Paperclip, Smartphone, Trash2 } from "lucide-react";
+import { Bell, Check, Mail, Paperclip, Smartphone, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes } from "@/lib/files";
@@ -362,37 +362,15 @@ function SharedEventView({
   const start = new Date(event.start);
   const end = new Date(event.end);
 
-  const copyToMine = () => {
-    const target =
-      store.myCalendars.find((c) => c.visible) ?? store.myCalendars[0];
-    if (!target) return;
-    store.createEvent({
-      calendarId: target.id,
-      title: event.title,
-      notes: event.notes ?? "",
-      location: event.location ?? "",
-      start,
-      end,
-      allDay: event.allDay,
-      sharedWith: [],
-    });
-    onClose();
-  };
-
   return (
     <Modal
       title="Shared with you"
       onClose={onClose}
       width={460}
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-          <Button variant="primary" onClick={copyToMine}>
-            <CopyPlus size={15} /> Block this time on my calendar
-          </Button>
-        </>
+        <Button variant="primary" onClick={onClose}>
+          Close
+        </Button>
       }
     >
       <div className="space-y-3.5">
@@ -453,11 +431,9 @@ function SharedEventView({
           </p>
         </Field>
         <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[12px] leading-relaxed text-ink-muted">
-          You can see this because {store.personById(event.createdBy)?.name ?? "someone"} shared
-          it, but it lives on their calendar: only they can change it, and it does
-          not make <strong className="font-medium text-ink">you</strong> look busy
-          to your own groups. Blocking the time puts your own copy alongside it —
-          yours to edit, and visible as busy to the people you share with.
+          {store.personById(event.createdBy)?.name ?? "Someone"} shared this with
+          you, so it sits on your calendar and your groups already see you as
+          busy at this time. Only they can change the event itself.
         </p>
       </div>
     </Modal>

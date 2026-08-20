@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { Clock, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 import { useSettings, type Settings } from "@/lib/settings";
+import { useStore } from "@/lib/store";
 import type { CalendarView } from "@/lib/types";
 import { InstallHint } from "./InstallHint";
 import { PushToggle } from "./PushToggle";
@@ -45,6 +46,8 @@ function Choice<T extends string | number | boolean>({
 /** Per-device preferences: how the calendar looks and reads. */
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const settings = useSettings();
+  const store = useStore();
+  const sharedBusy = store.me.sharedBusy ?? true;
   const now = new Date();
   const sample = settings.hour12
     ? now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
@@ -126,6 +129,22 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               { value: false, label: "Same as weekdays" },
             ]}
           />
+        </Field>
+
+        <Field label="When somebody shares an event with me">
+          <Choice<boolean>
+            value={sharedBusy}
+            onChange={(v) => store.setSharedBusy(v)}
+            options={[
+              { value: true, label: "Show me as busy" },
+              { value: false, label: "Keep it to myself" },
+            ]}
+          />
+          <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
+            An event somebody shares with you takes up your time, so your groups
+            see a grey busy block — never what it is. Turn it off and only you
+            will know.
+          </p>
         </Field>
 
         <Field label="Notifications on this device">

@@ -49,6 +49,7 @@ interface ProfileRow {
   display_name: string;
   avatar_color: string;
   avatar_url: string | null;
+  shared_busy?: boolean;
 }
 
 const toPerson = (row: ProfileRow): Person => ({
@@ -57,6 +58,7 @@ const toPerson = (row: ProfileRow): Person => ({
   email: row.email,
   avatarColor: asColor(row.avatar_color),
   avatarUrl: row.avatar_url ?? undefined,
+  sharedBusy: row.shared_busy ?? true,
 });
 
 interface CalendarRow {
@@ -340,6 +342,15 @@ export async function setSubscription(
   if (error) throw error;
 }
 
+/** Whether events shared with me mark me busy to my groups. */
+export async function setSharedBusy(supabase: Client, on: boolean) {
+  const { error } = await supabase
+    .from("cc_profiles")
+    .update({ shared_busy: on })
+    .eq("id", (await supabase.auth.getUser()).data.user?.id ?? "");
+  if (error) throw error;
+}
+
 export async function markNotificationsRead(supabase: Client, ids: string[]) {
   if (!ids.length) return;
   const { error } = await supabase
@@ -409,7 +420,9 @@ export async function loadWorkspace(
 ): Promise<Workspace> {
   const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, feeds] =
     await Promise.all([
-      supabase.from("cc_profiles").select("id,email,display_name,avatar_color,avatar_url"),
+      supabase
+        .from("cc_profiles")
+        .select("id,email,display_name,avatar_color,avatar_url,shared_busy"),
       supabase.from("cc_groups").select("id,name,owner_id"),
       supabase.from("cc_group_members").select("group_id,user_id"),
       supabase

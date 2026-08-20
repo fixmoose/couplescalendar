@@ -205,7 +205,7 @@ export function CalendarApp() {
         inviteEmails: [],
         reminders: [...DEFAULT_REMINDERS],
       });
-      setNotice(`“${event.title}” is now on your calendar too — your groups will see you as busy.`);
+      setNotice(`Your own copy of “${event.title}” is on your calendar — yours to edit.`);
     },
     [store],
   );
@@ -257,7 +257,7 @@ export function CalendarApp() {
           ? []
           : [
               {
-                label: "Block this time on my calendar",
+                label: "Make my own editable copy",
                 icon: <CopyPlus size={13} />,
                 onSelect: () => copyToMyCalendar(event),
               } as MenuItem,

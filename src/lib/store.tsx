@@ -138,6 +138,8 @@ interface StoreValue extends Data {
   unreadNotifications: number;
   markNotificationsRead: (ids: string[]) => void;
   /** How the viewer wants to hear about one event. */
+  /** Whether events shared with me mark me busy to my groups. */
+  setSharedBusy: (on: boolean) => void;
   setEventSubscription: (
     eventId: string,
     patch: Partial<{ email: boolean; mobile: boolean }>,
@@ -1097,6 +1099,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ...d.events.find((e) => e.id === eventId)?.subscription,
               ...patch,
             }),
+        ),
+
+      setSharedBusy: (on) =>
+        write(
+          (s) => ({
+            ...s,
+            people: s.people.map((p) =>
+              p.id === userId ? { ...p, sharedBusy: on } : p,
+            ),
+          }),
+          async () => {
+            await db.setSharedBusy(supabase, on);
+            await refresh();
+          },
         ),
 
       markNotificationsRead: (ids) =>
