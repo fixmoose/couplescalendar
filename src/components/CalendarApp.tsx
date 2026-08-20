@@ -60,6 +60,7 @@ import { SubscribeDialog } from "./SubscribeDialog";
 import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
 import { TimeGridView } from "./TimeGridView";
+import { PhoneTour, TOUR_SEEN_KEY } from "./PhoneTour";
 import { TopBar } from "./TopBar";
 import { Avatar, Toast, UndoBar } from "./ui";
 import type { ViewHandlers } from "./view-types";
@@ -112,6 +113,20 @@ export function CalendarApp() {
     { kind: "group" | "calendar"; id: string } | null
   >(null);
   const isMobile = useIsMobile();
+
+  /*
+   * The walkthrough, first time on a phone only. Read lazily rather than in an
+   * effect so it is decided before the first paint, and never on the server.
+   */
+  const [tourDone, setTourDone] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return localStorage.getItem(TOUR_SEEN_KEY) === "1";
+    } catch {
+      return true;
+    }
+  });
+  const tourOpen = isMobile && !tourDone;
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
     null,
@@ -786,6 +801,7 @@ export function CalendarApp() {
             type="button"
             onClick={newEventHere}
             aria-label="New event"
+            data-tour="create"
             className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-[var(--shadow-lg)] transition active:scale-95"
             style={{ bottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}
           >
@@ -809,6 +825,19 @@ export function CalendarApp() {
       )}
 
       <NotesPanel open={notesOpen} onClose={() => setNotesOpen(false)} />
+
+      {tourOpen && (
+        <PhoneTour
+          onDone={() => {
+            setTourDone(true);
+            try {
+              localStorage.setItem(TOUR_SEEN_KEY, "1");
+            } catch {
+              /* private browsing: the tour simply runs again */
+            }
+          }}
+        />
+      )}
 
       <ReminderWatcher />
 

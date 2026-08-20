@@ -76,7 +76,12 @@ export function TopBar({
       <header className="shrink-0 border-b border-line bg-surface">
         {/* Where am I, and has anything happened. */}
         <div className="flex h-14 items-center gap-1 px-2">
-          <IconButton onClick={onMenu} aria-label="Menu" className="h-10 w-10">
+          <IconButton
+            onClick={onMenu}
+            aria-label="Menu"
+            className="h-10 w-10"
+            data-tour="menu"
+          >
             <Menu size={22} />
           </IconButton>
 
@@ -93,28 +98,35 @@ export function TopBar({
             {searching ? <X size={20} /> : <Search size={20} />}
           </IconButton>
 
-          <NotificationsMenu onOpenEvent={onOpenEvent} />
-          <AccountMenu onSettings={onSettings} onTrash={onTrash} />
+          <span data-tour="bell" className="flex">
+            <NotificationsMenu onOpenEvent={onOpenEvent} />
+          </span>
+          <span data-tour="account" className="flex">
+            <AccountMenu onSettings={onSettings} onTrash={onTrash} />
+          </span>
         </div>
 
         {/* Moving about. */}
         <div className="flex items-center gap-1.5 border-t border-line px-2 py-1.5">
-          <Button variant="outline" onClick={onToday} className="h-9 px-3.5 text-[14px]">
-            Today
-          </Button>
+          <span data-tour="today" className="flex items-center gap-1.5">
+            <Button variant="outline" onClick={onToday} className="h-9 px-3.5 text-[14px]">
+              Today
+            </Button>
 
-          <IconButton onClick={onPrev} aria-label="Previous" className="h-10 w-10">
-            <ChevronLeft size={22} />
-          </IconButton>
-          <IconButton onClick={onNext} aria-label="Next" className="h-10 w-10">
-            <ChevronRight size={22} />
-          </IconButton>
+            <IconButton onClick={onPrev} aria-label="Previous" className="h-10 w-10">
+              <ChevronLeft size={22} />
+            </IconButton>
+            <IconButton onClick={onNext} aria-label="Next" className="h-10 w-10">
+              <ChevronRight size={22} />
+            </IconButton>
+          </span>
 
           <select
             value={view}
             onChange={(e) => onView(e.target.value as CalendarView)}
             aria-label="View"
             className="ml-auto h-9 rounded-lg border border-line bg-surface px-2 text-[14px] text-ink"
+            data-tour="views"
           >
             <option value="day">Day</option>
             <option value="week">3 days</option>

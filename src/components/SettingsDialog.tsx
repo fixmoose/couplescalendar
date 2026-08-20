@@ -2,10 +2,13 @@
 
 import clsx from "clsx";
 import { Clock, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
+import { useState } from "react";
+import { useIsMobile } from "@/lib/media";
 import { useSettings, type Settings } from "@/lib/settings";
 import { useStore } from "@/lib/store";
 import type { CalendarView } from "@/lib/types";
 import { InstallHint } from "./InstallHint";
+import { TOUR_SEEN_KEY } from "./PhoneTour";
 import { PushToggle } from "./PushToggle";
 import { Button, Field, Modal } from "./ui";
 
@@ -153,6 +156,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
         <Field label="On your phone">
           <InstallHint />
+          <ReplayTour />
         </Field>
 
         <p className="text-[12px] leading-relaxed text-ink-faint">
@@ -160,5 +164,33 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </p>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Runs the phone walkthrough again. Only offered on a phone, since that is the
+ * only place it appears — forgetting the flag on a laptop would do nothing
+ * visible and read as a broken button.
+ */
+function ReplayTour() {
+  const isMobile = useIsMobile();
+  const [replayed, setReplayed] = useState(false);
+  if (!isMobile) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        try {
+          localStorage.removeItem(TOUR_SEEN_KEY);
+        } catch {
+          /* nothing to forget */
+        }
+        setReplayed(true);
+      }}
+      className="mt-2 text-[13px] font-medium text-brand hover:underline"
+    >
+      {replayed ? "Close settings to see it" : "Show me around again"}
+    </button>
   );
 }
