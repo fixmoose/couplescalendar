@@ -8,6 +8,11 @@ import { createAdminClient, createClient } from "@/lib/supabase/server";
  * Called by the client right after it shares something, so the other person
  * hears about it immediately even with the calendar closed; the reminders cron
  * sweeps up anything this missed.
+ *
+ * The caller names the event, not the notifications: the rows belong to the
+ * recipients, so the sender cannot read them and cannot name their ids. The
+ * lookup happens here with the admin client, restricted to notifications this
+ * caller actually caused.
  */
 
 function configured() {
@@ -38,10 +43,8 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-  const { notificationIds } = (await request.json().catch(() => ({}))) as {
-    notificationIds?: string[];
-  };
-  if (!notificationIds?.length) {
+  const { eventId } = (await request.json().catch(() => ({}))) as { eventId?: string };
+  if (!eventId) {
     return NextResponse.json({ error: "Nothing to send." }, { status: 400 });
   }
 
@@ -49,17 +52,18 @@ export async function POST(request: Request) {
   const { data: notifications, error } = await admin
     .from("cc_notifications")
     .select("id,user_id,actor_id,title,body,event_id,pushed_at")
-    .in("id", notificationIds.slice(0, 20))
-    .is("pushed_at", null);
+    .eq("event_id", eventId)
+    // Only what this caller caused, and only what has not gone out yet.
+    .eq("actor_id", user.id)
+    .is("pushed_at", null)
+    .gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString())
+    .limit(50);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   let sent = 0;
 
   for (const note of notifications ?? []) {
-    // The sender may only trigger pushes for notifications they caused.
-    if (note.actor_id !== user.id) continue;
-
     await admin
       .from("cc_notifications")
       .update({ pushed_at: new Date().toISOString() })

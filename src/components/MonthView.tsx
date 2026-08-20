@@ -13,7 +13,9 @@ import {
 } from "date-fns";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
-import { layoutWeek, monthMatrix, weekDays } from "@/lib/date";
+import { colorVar } from "@/lib/colors";
+import { layoutWeek, monthMatrix, occursOn, weekDays } from "@/lib/date";
+import { useIsMobile } from "@/lib/media";
 import { dragHasFiles, filesFromDrag } from "@/lib/files";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
@@ -33,6 +35,7 @@ export function MonthView({
   handlers: ViewHandlers;
 }) {
   const { rescheduleEvent, canEditEvent } = useStore();
+  const isMobile = useIsMobile();
   const weeks = useMemo(() => monthMatrix(date), [date]);
   const labels = useMemo(
     () => weekDays(new Date()).map((d) => format(d, "EEE")),
@@ -203,7 +206,11 @@ export function MonthView({
                       </button>
                     </div>
 
-                    {overflow > 0 && (
+                    {isMobile ? (
+                      <MonthDots events={events} day={day} />
+                    ) : null}
+
+                    {!isMobile && overflow > 0 && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -220,7 +227,11 @@ export function MonthView({
               })}
 
               <div
-                className="pointer-events-none absolute inset-x-0 bottom-0"
+                className={clsx(
+                  "pointer-events-none absolute inset-x-0 bottom-0",
+                  // Phones show dots inside each cell instead — see MonthDots.
+                  isMobile && "hidden",
+                )}
                 style={{ top: HEADER_H }}
               >
                 {shown.map((seg) => (
@@ -258,6 +269,38 @@ export function MonthView({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A month cell on a phone is about 50px across — too narrow for a title, wide
+ * enough for a dot per event in the calendar's own colour. Four or more and it
+ * says how many, because five identical dots tell you nothing a number does
+ * not. The whole cell already opens the day, where the titles live.
+ */
+function MonthDots({ events, day }: { events: CalendarEvent[]; day: Date }) {
+  const { calendarById } = useStore();
+  const onDay = events.filter((e) => occursOn(e, day));
+  if (!onDay.length) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-1.5 flex items-center justify-center gap-[3px] px-1">
+      {onDay.slice(0, 3).map((event) => (
+        <span
+          key={event.id}
+          style={colorVar(event.color ?? calendarById(event.calendarId)?.color ?? "slate")}
+          className={clsx(
+            "h-[7px] w-[7px] shrink-0 rounded-full",
+            event.masked ? "bg-ink-faint/50" : "cc-dot",
+          )}
+        />
+      ))}
+      {onDay.length > 3 && (
+        <span className="text-[11px] leading-none font-semibold text-ink-muted">
+          {onDay.length}
+        </span>
+      )}
     </div>
   );
 }

@@ -138,14 +138,18 @@ export async function pushEnabled() {
   return Boolean(await registration?.pushManager.getSubscription());
 }
 
-/** Nudges the server to deliver a notification now, rather than on the cron. */
-export async function deliverNow(notificationIds: string[]) {
-  if (!notificationIds.length) return;
+/**
+ * Nudges the server to push whatever this event just generated, rather than
+ * waiting for the cron. The server works out which notifications those are —
+ * they belong to the recipients, so we cannot read them here.
+ */
+export async function deliverNow(target: { eventId: string }) {
+  if (!target.eventId) return;
   try {
     await fetch("/api/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notificationIds }),
+      body: JSON.stringify(target),
     });
   } catch {
     /* the cron will pick it up */

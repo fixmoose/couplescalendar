@@ -1278,19 +1278,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
  * A share writes a notification by trigger; this asks the server to push it
  * out now, so the other person hears about it with the calendar closed rather
  * than whenever the cron next runs.
+ *
+ * We name the event and let the server find the notifications. They are
+ * addressed to the other people, so this client cannot read them.
  */
-async function pushFreshShares(supabase: SupabaseClient, eventId: string) {
-  try {
-    const { data } = await supabase
-      .from("cc_notifications")
-      .select("id")
-      .eq("event_id", eventId)
-      .is("pushed_at", null)
-      .limit(20);
-    await deliverNow((data ?? []).map((n) => n.id as string));
-  } catch {
-    /* the cron is the backstop */
-  }
+async function pushFreshShares(_supabase: SupabaseClient, eventId: string) {
+  await deliverNow({ eventId });
 }
 
 /** Sends a failed write to the server log, so it can be read from outside. */

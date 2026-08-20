@@ -40,7 +40,8 @@ const HOUR = 60;
 const MENU_SNAP = 30;
 /** How precisely the hover readout reports the time under the cursor. */
 const READOUT_SNAP = 5;
-const GUTTER = "64px";
+/* Narrow on a phone: every pixel here is taken from the day columns. */
+const GUTTER = "clamp(44px, 12vw, 64px)";
 
 type Drag =
   | { mode: "create"; dayIndex: number; anchor: number; from: number; to: number }
@@ -354,7 +355,12 @@ export function TimeGridView({
               key={day.toISOString()}
               type="button"
               onClick={() => handlers.onNavigate(day, "day")}
-              className="flex items-center justify-center gap-1.5 border-l border-line py-2 transition hover:bg-surface-2"
+              /*
+               * Stacked on a narrow column, side by side when there is room.
+               * Laid out in a row, "MON" and "17" collided with the next day's
+               * label as soon as the column dropped below about 60px.
+               */
+              className="flex flex-col items-center justify-center gap-0.5 border-l border-line py-2 transition hover:bg-surface-2 sm:flex-row sm:gap-1.5"
             >
               <span
                 className={clsx(
@@ -366,7 +372,7 @@ export function TimeGridView({
               </span>
               <span
                 className={clsx(
-                  "flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[14px] font-semibold",
+                  "flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-[15px] font-semibold sm:h-6 sm:min-w-6 sm:text-[14px]",
                   isToday(day) ? "bg-brand text-white" : "text-ink",
                 )}
               >
@@ -381,7 +387,9 @@ export function TimeGridView({
           style={{ gridTemplateColumns: `${GUTTER} repeat(${days.length}, minmax(0,1fr))` }}
         >
           <div className="flex items-start justify-end pt-1.5 pr-2 text-[10px] font-medium tracking-wide text-ink-faint uppercase">
-            All day
+            {/* "All day" wraps to two lines in the narrow phone gutter. */}
+            <span className="hidden sm:inline">All day</span>
+            <span className="sm:hidden">All</span>
           </div>
           <div
             className="relative min-h-[30px] py-1"

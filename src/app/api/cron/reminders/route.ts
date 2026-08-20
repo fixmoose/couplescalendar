@@ -158,6 +158,7 @@ export async function GET(request: Request) {
   }
 
   const pushed = await pushDueReminders(admin);
+  const notified = await pushPendingNotifications(admin);
   const mailed = await flushNotificationEmails(admin, apiKey);
 
   return NextResponse.json({
@@ -165,6 +166,7 @@ export async function GET(request: Request) {
     due: due.length,
     sent,
     remindersPushed: pushed,
+    notificationsPushed: notified,
     notificationsEmailed: mailed,
     ...(skipped.length ? { skippedNoMailKey: skipped.length } : {}),
   });
@@ -303,6 +305,72 @@ function describeMinutes(minutes: number) {
     return `${hours} hour${hours === 1 ? "" : "s"} before`;
   }
   return `${minutes} min before`;
+}
+
+/**
+ * Pushes any notification that has not gone out yet — a share, an update, a
+ * pinned note. The sharer's browser normally asks for delivery the moment it
+ * happens; this catches the times it could not, because the tab was closed
+ * mid-write, the network dropped, or the trigger fired without a browser
+ * behind it at all.
+ */
+async function pushPendingNotifications(admin: ReturnType<typeof createAdminClient>) {
+  if (!configuredPush()) return 0;
+
+  const { data } = await admin
+    .from("cc_notifications")
+    .select("id,user_id,title,body,event_id")
+    .is("pushed_at", null)
+    // Old enough that the immediate attempt has had its chance, recent enough
+    // to still be worth someone's lock screen.
+    .lt("created_at", new Date(Date.now() - 60_000).toISOString())
+    .gte("created_at", new Date(Date.now() - 6 * 3600_000).toISOString())
+    .limit(100);
+
+  let pushed = 0;
+
+  for (const note of data ?? []) {
+    // Claim it first: whatever happens next, it goes out once.
+    const { error: claimError } = await admin
+      .from("cc_notifications")
+      .update({ pushed_at: new Date().toISOString() })
+      .eq("id", note.id)
+      .is("pushed_at", null);
+    if (claimError) continue;
+
+    const { data: subscriptions } = await admin
+      .from("cc_push_subscriptions")
+      .select("endpoint,p256dh,auth")
+      .eq("user_id", note.user_id);
+
+    for (const subscription of subscriptions ?? []) {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+          },
+          JSON.stringify({
+            title: note.title,
+            body: note.body ?? "",
+            tag: note.id,
+            url: note.event_id ? `/calendar?event=${note.event_id}` : "/calendar",
+          }),
+        );
+        pushed += 1;
+      } catch (e) {
+        const status = (e as { statusCode?: number }).statusCode;
+        if (status === 404 || status === 410) {
+          await admin
+            .from("cc_push_subscriptions")
+            .delete()
+            .eq("endpoint", subscription.endpoint);
+        }
+      }
+    }
+  }
+
+  return pushed;
 }
 
 /**

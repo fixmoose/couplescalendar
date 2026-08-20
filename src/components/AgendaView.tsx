@@ -49,16 +49,21 @@ function Row({
       ) : (
         <span className="cc-dot h-2.5 w-2.5 shrink-0 rounded-full" />
       )}
-      <span className="w-[132px] shrink-0 text-[13px] text-ink-muted tabular-nums">
+      <span className="hidden w-[132px] shrink-0 text-[13px] text-ink-muted tabular-nums sm:block">
         {rangeLabel(event)}
       </span>
-      <span
-        className={clsx(
-          "min-w-0 flex-1 truncate text-[14px] font-medium",
-          event.masked ? "text-ink-muted italic" : "text-ink",
-        )}
-      >
-        {event.title}
+      <span className="min-w-0 flex-1">
+        <span
+          className={clsx(
+            "block truncate text-[15px] font-medium sm:text-[14px]",
+            event.masked ? "text-ink-muted italic" : "text-ink",
+          )}
+        >
+          {event.title}
+        </span>
+        <span className="block text-[13px] text-ink-muted tabular-nums sm:hidden">
+          {rangeLabel(event)}
+        </span>
       </span>
       {provenance !== "private" && (
         <ProvenanceIcon provenance={provenance} size={13} className="text-ink-faint" />
@@ -76,9 +81,11 @@ function Row({
         attachments={event.attachments}
         className="text-ink-faint"
       />
-      <span className="flex w-20 shrink-0 justify-end">
-        <PeopleStack people={others} size={20} max={3} event={event} />
-      </span>
+      {others.length > 0 && (
+        <span className="flex shrink-0 justify-end sm:w-20">
+          <PeopleStack people={others} size={20} max={3} event={event} />
+        </span>
+      )}
     </div>
   );
 }
@@ -110,7 +117,7 @@ export function AgendaView({
 
   return (
     <div className="cc-scroll min-h-0 flex-1 overflow-y-auto bg-surface">
-      <div className="mx-auto max-w-3xl px-5 py-6">
+      <div className="mx-auto max-w-3xl px-3 py-5 sm:px-5 sm:py-6">
         {groups.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-24 text-center">
             <CalendarX2 size={30} className="text-ink-faint" />
@@ -121,8 +128,8 @@ export function AgendaView({
         )}
 
         {groups.map(({ day, items }) => (
-          <section key={day.toISOString()} className="mb-5 flex gap-5">
-            <div className="w-20 shrink-0 pt-2 text-right">
+          <section key={day.toISOString()} className="mb-5 flex gap-3 sm:gap-5">
+            <div className="w-12 shrink-0 pt-2 text-right sm:w-20">
               <div
                 className={clsx(
                   "text-[22px] leading-none font-semibold tabular-nums",
@@ -132,7 +139,9 @@ export function AgendaView({
                 {format(day, "d")}
               </div>
               <div className="mt-1 text-[11px] font-medium tracking-wide text-ink-faint uppercase">
-                {format(day, "EEE MMM")}
+                {/* The month is already in the title bar on a narrow screen. */}
+                <span className="sm:hidden">{format(day, "EEE")}</span>
+                <span className="hidden sm:inline">{format(day, "EEE MMM")}</span>
               </div>
             </div>
             <div className="min-w-0 flex-1 border-l border-line pl-2">

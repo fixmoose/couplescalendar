@@ -15,6 +15,7 @@ import {
   CalendarPlus,
   Copy,
   CopyPlus,
+  Plus,
   Eye,
   EyeOff,
   Lock,
@@ -560,11 +561,12 @@ export function CalendarApp() {
     (direction: 1 | -1) =>
       setDate((current) => {
         if (view === "month") return addMonths(startOfMonth(current), direction);
-        if (view === "week") return addWeeks(current, direction);
+        if (view === "week")
+          return isMobile ? addDays(current, direction * 3) : addWeeks(current, direction);
         if (view === "day") return addDays(current, direction);
         return addDays(current, direction * 7);
       }),
-    [view],
+    [view, isMobile],
   );
 
   /**
@@ -747,7 +749,16 @@ export function CalendarApp() {
           <MonthView date={date} events={events} handlers={handlers} />
         )}
         {view === "week" && (
-          <TimeGridView days={weekDays(date)} events={events} handlers={handlers} />
+          <TimeGridView
+            /*
+             * Seven columns on a phone leaves about 45px each — every title
+             * truncates to a letter and an ellipsis. Three days is what the
+             * screen can actually show, and the arrows move three at a time.
+             */
+            days={isMobile ? [date, addDays(date, 1), addDays(date, 2)] : weekDays(date)}
+            events={events}
+            handlers={handlers}
+          />
         )}
         {view === "day" &&
           (isMobile ? (
@@ -765,6 +776,22 @@ export function CalendarApp() {
           <AgendaView date={date} events={events} handlers={handlers} />
         )}
 
+        {/*
+         * A phone has no right-click, which is how everything gets created on
+         * a desktop. Without this there is no way to add an event at all once
+         * the day has something in it.
+         */}
+        {isMobile && (
+          <button
+            type="button"
+            onClick={newEventHere}
+            aria-label="New event"
+            className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-[var(--shadow-lg)] transition active:scale-95"
+            style={{ bottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}
+          >
+            <Plus size={26} />
+          </button>
+        )}
       </main>
 
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
