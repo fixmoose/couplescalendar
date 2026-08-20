@@ -30,6 +30,7 @@ import { colorVar, COLOR_KEYS, COLORS } from "@/lib/colors";
 import { timeLabel, weekDays } from "@/lib/date";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes, titleFromFileName } from "@/lib/files";
+import { useIsMobile } from "@/lib/media";
 import { useSettings } from "@/lib/settings";
 import { useStore } from "@/lib/store";
 import {
@@ -101,6 +102,8 @@ export function CalendarApp() {
   const [trashOpen, setTrashOpen] = useState(false);
   /** Whether we have been anywhere else, so Back can be offered honestly. */
   const [canGoBack, setCanGoBack] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
     null,
@@ -626,8 +629,13 @@ export function CalendarApp() {
   return (
     <div className="flex h-full min-h-0 bg-bg">
       <Sidebar
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
         selected={date}
-        onSelectDate={(d) => setDate(d)}
+        onSelectDate={(d) => {
+          setDate(d);
+          setMenuOpen(false);
+        }}
         onNewEvent={() => newEventHere()}
         onNewCalendar={(groupId) => setDialog({ kind: "calendar", groupId })}
         onEditCalendar={(calendar) => setDialog({ kind: "calendar", calendar })}
@@ -653,6 +661,7 @@ export function CalendarApp() {
             setDate(new Date(event.start));
             editEvent(event);
           }}
+          onMenu={() => setMenuOpen((v) => !v)}
           onSettings={() => setSettingsOpen(true)}
           onTrash={() => setTrashOpen(true)}
           canGoBack={canGoBack}
@@ -665,12 +674,18 @@ export function CalendarApp() {
         {view === "week" && (
           <TimeGridView days={weekDays(date)} events={events} handlers={handlers} />
         )}
-        {view === "day" && (
-          <div className="flex min-h-0 flex-1">
-            <TimeGridView days={[date]} events={events} handlers={handlers} />
-            <DayPanel date={date} events={events} handlers={handlers} />
-          </div>
-        )}
+        {view === "day" &&
+          (isMobile ? (
+            // Today's list first: on a phone that is the whole question.
+            <div className="flex min-h-0 flex-1 flex-col">
+              <DayPanel date={date} events={events} handlers={handlers} mobile />
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1">
+              <TimeGridView days={[date]} events={events} handlers={handlers} />
+              <DayPanel date={date} events={events} handlers={handlers} />
+            </div>
+          ))}
         {view === "agenda" && (
           <AgendaView date={date} events={events} handlers={handlers} />
         )}

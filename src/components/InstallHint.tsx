@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Share, Smartphone } from "lucide-react";
 import { useState } from "react";
+import { InstallQr } from "./InstallQr";
 import { detectPlatform, isStandalone } from "./NotificationHelp";
 
 /**
@@ -45,7 +46,9 @@ export function InstallHint() {
 
   return (
     <div>
-      <p className="flex items-start gap-1.5 text-[12px] leading-relaxed text-ink-muted">
+      <InstallQr />
+
+      <p className="mt-3 flex items-start gap-1.5 text-[12px] leading-relaxed text-ink-muted">
         <Smartphone size={14} className="mt-px shrink-0 text-brand" />
         There is no app to download — the calendar installs itself from the
         browser and then behaves like one, icon and all.

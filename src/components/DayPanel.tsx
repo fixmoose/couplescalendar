@@ -18,9 +18,11 @@ import type { ViewHandlers } from "./view-types";
 function Item({
   event,
   handlers,
+  mobile = false,
 }: {
   event: CalendarEvent;
   handlers: ViewHandlers;
+  mobile?: boolean;
 }) {
   const color = useEventColor(event);
   const { others, label } = useEventPeople(event);
@@ -39,7 +41,8 @@ function Item({
       onContextMenu={(e) => handlers.onEventMenu(e, event)}
       style={colorVar(color)}
       className={clsx(
-        "group w-full rounded-xl border px-3 py-2.5 text-left transition",
+        "group w-full rounded-xl border text-left transition",
+        mobile ? "px-4 py-3.5" : "px-3 py-2.5",
         masked
           ? "cc-busy border-dashed"
           : "cc-tint-border border-line bg-surface hover:border-[var(--c)] hover:shadow-[var(--shadow-sm)]",
@@ -54,7 +57,8 @@ function Item({
         )}
         <span
           className={clsx(
-            "min-w-0 flex-1 truncate text-[13px] font-semibold",
+            "min-w-0 flex-1 truncate font-semibold",
+            mobile ? "text-[16px]" : "text-[13px]",
             masked ? "text-ink-muted italic" : "text-ink",
           )}
         >
@@ -72,7 +76,12 @@ function Item({
       </div>
 
       <div className="mt-1 flex items-center gap-2 pl-[18px]">
-        <span className="text-[12px] text-ink-muted tabular-nums">
+        <span
+          className={clsx(
+            "text-ink-muted tabular-nums",
+            mobile ? "text-[14px]" : "text-[12px]",
+          )}
+        >
           {rangeLabel(event)}
         </span>
         {!masked && (
@@ -115,10 +124,13 @@ export function DayPanel({
   date,
   events,
   handlers,
+  mobile = false,
 }: {
   date: Date;
   events: CalendarEvent[];
   handlers: ViewHandlers;
+  /** On a phone this is the whole view, not a companion column. */
+  mobile?: boolean;
 }) {
   const items = useMemo(
     () =>
@@ -136,19 +148,43 @@ export function DayPanel({
   const urgent = mine.filter((e) => e.importance === "urgent").length;
 
   return (
-    <aside className="flex w-[340px] shrink-0 flex-col border-l border-line bg-surface">
-      <div className="flex items-baseline gap-2 border-b border-line px-4 py-3">
-        <h2 className="text-[15px] font-semibold text-ink">
+    <aside
+      className={clsx(
+        "flex flex-col bg-surface",
+        mobile ? "min-h-0 flex-1" : "w-[340px] shrink-0 border-l border-line",
+      )}
+    >
+      <div
+        className={clsx(
+          "flex items-baseline gap-2 border-b border-line px-4",
+          mobile ? "py-4" : "py-3",
+        )}
+      >
+        <h2
+          className={clsx(
+            "font-semibold text-ink",
+            mobile ? "text-[20px]" : "text-[15px]",
+          )}
+        >
           {isToday(date) ? "Today" : format(date, "EEEE")}
         </h2>
-        <span className="text-[12px] text-ink-faint">{format(date, "d MMMM")}</span>
-        <span className="ml-auto text-[12px] text-ink-faint">
+        <span className={clsx("text-ink-faint", mobile ? "text-[15px]" : "text-[12px]")}>
+          {format(date, "d MMMM")}
+        </span>
+        <span
+          className={clsx("ml-auto text-ink-faint", mobile ? "text-[14px]" : "text-[12px]")}
+        >
           {mine.length} {mine.length === 1 ? "item" : "items"}
           {urgent > 0 && <span className="ml-1.5 text-[#d1443c]">· {urgent} urgent</span>}
         </span>
       </div>
 
-      <div className="cc-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+      <div
+        className={clsx(
+          "cc-scroll min-h-0 flex-1 overflow-y-auto",
+          mobile ? "space-y-2.5 p-3 pb-24" : "space-y-1.5 p-3",
+        )}
+      >
         {items.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-14 text-center">
             <CalendarPlus size={24} className="text-ink-faint" />
@@ -170,7 +206,7 @@ export function DayPanel({
         )}
 
         {items.map((event) => (
-          <Item key={event.id} event={event} handlers={handlers} />
+          <Item key={event.id} event={event} handlers={handlers} mobile={mobile} />
         ))}
       </div>
     </aside>

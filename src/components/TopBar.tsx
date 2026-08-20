@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Menu, Moon, Search, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
 import { useSettings } from "@/lib/settings";
 import { useTheme } from "@/lib/theme";
@@ -23,6 +23,7 @@ export function TopBar({
   onTrash,
   canGoBack,
   onBack,
+  onMenu,
 }: {
   date: Date;
   view: CalendarView;
@@ -37,23 +38,28 @@ export function TopBar({
   onTrash: () => void;
   canGoBack: boolean;
   onBack: () => void;
+  onMenu: () => void;
 }) {
   const { theme } = useTheme();
   const settings = useSettings();
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 sm:gap-3 sm:px-4">
+      <IconButton onClick={onMenu} aria-label="Menu" className="md:hidden">
+        <Menu size={18} />
+      </IconButton>
+
       <IconButton
         onClick={onBack}
         disabled={!canGoBack}
         aria-label="Back to where I was"
         title="Back to where I was"
-        className="disabled:opacity-30"
+        className="hidden disabled:opacity-30 sm:inline-flex"
       >
         <ArrowLeft size={17} />
       </IconButton>
 
-      <Button variant="outline" onClick={onToday} className="px-3.5">
+      <Button variant="outline" onClick={onToday} className="px-3 sm:px-3.5">
         Today
       </Button>
 
@@ -66,7 +72,7 @@ export function TopBar({
         </IconButton>
       </div>
 
-      <h1 className="ml-1 truncate text-[19px] font-semibold tracking-tight text-ink">
+      <h1 className="ml-0.5 truncate text-[16px] font-semibold tracking-tight text-ink sm:ml-1 sm:text-[19px]">
         {periodLabel(date, view)}
       </h1>
 
@@ -84,20 +90,36 @@ export function TopBar({
           />
         </div>
 
-        <Segmented
+        {/* A phone has no room for four labels, so it gets a picker. */}
+        <select
           value={view}
-          onChange={onView}
-          options={[
-            { value: "day", label: "Day", hint: "D" },
-            { value: "week", label: "Week", hint: "W" },
-            { value: "month", label: "Month", hint: "M" },
-            { value: "agenda", label: "Agenda", hint: "A" },
-          ]}
-        />
+          onChange={(e) => onView(e.target.value as CalendarView)}
+          aria-label="View"
+          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink sm:hidden"
+        >
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+          <option value="agenda">Agenda</option>
+        </select>
+
+        <span className="hidden sm:block">
+          <Segmented
+            value={view}
+            onChange={onView}
+            options={[
+              { value: "day", label: "Day", hint: "D" },
+              { value: "week", label: "Week", hint: "W" },
+              { value: "month", label: "Month", hint: "M" },
+              { value: "agenda", label: "Agenda", hint: "A" },
+            ]}
+          />
+        </span>
 
         <NotificationsMenu onOpenEvent={onOpenEvent} />
 
         <IconButton
+          className="hidden sm:inline-flex"
           onClick={() => settings.set("theme", theme === "dark" ? "light" : "dark")}
           aria-label="Toggle theme"
           title="Switch theme — more in Settings"

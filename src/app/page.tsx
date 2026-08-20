@@ -40,9 +40,9 @@ const FEATURES = [
 export default function LandingPage() {
   return (
     <main className="min-h-full bg-bg">
-      <header className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-6">
+      <header className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-5 sm:gap-3 sm:px-6 sm:py-6">
         <Image src="/logo-mark.png" alt="" width={34} height={34} className="h-[34px] w-[34px]" />
-        <span className="text-[16px] font-bold tracking-tight text-ink">
+        <span className="truncate text-[15px] font-bold tracking-tight text-ink sm:text-[16px]">
           Couples<span className="text-brand">Calendar</span>
         </span>
         <span className="hidden text-[12px] text-ink-faint sm:inline">
@@ -51,13 +51,13 @@ export default function LandingPage() {
         <nav className="ml-auto flex items-center gap-2">
           <Link
             href="/login"
-            className="inline-flex h-9 items-center rounded-lg px-3.5 text-sm font-medium text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+            className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium whitespace-nowrap text-ink-muted transition hover:bg-surface-2 hover:text-ink sm:px-3.5"
           >
             Log in
           </Link>
           <Link
             href="/signup"
-            className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-[var(--shadow-sm)] transition hover:bg-brand-strong"
+            className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm font-medium whitespace-nowrap text-white shadow-[var(--shadow-sm)] transition hover:bg-brand-strong sm:px-4"
           >
             Get started
           </Link>

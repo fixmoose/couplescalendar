@@ -210,6 +210,8 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
 }
 
 export function Sidebar({
+  open,
+  onClose,
   selected,
   onSelectDate,
   onNewEvent,
@@ -222,6 +224,9 @@ export function Sidebar({
   onSubscribe,
   openMenu,
 }: {
+  /** On a phone the sidebar slides over the calendar instead of sitting beside it. */
+  open: boolean;
+  onClose: () => void;
   selected: Date;
   onSelectDate: (d: Date) => void;
   onNewEvent: () => void;
@@ -309,7 +314,23 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex h-full w-[268px] shrink-0 flex-col border-r border-line bg-surface">
+    <>
+      {open && (
+        <button
+          type="button"
+          aria-label="Close the menu"
+          onClick={onClose}
+          className="cc-fade fixed inset-0 z-30 bg-black/30 md:hidden"
+        />
+      )}
+
+      <aside
+        className={clsx(
+          "flex h-full w-[268px] shrink-0 flex-col border-r border-line bg-surface",
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[86vw] max-md:max-w-[320px] max-md:shadow-[var(--shadow-lg)] max-md:transition-transform",
+          !open && "max-md:-translate-x-full",
+        )}
+      >
       <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
         <Image
           src="/logo-mark.png"
@@ -478,7 +499,8 @@ export function Sidebar({
             </span>
           </button>
         ))}
-      </div>
-    </aside>
+        </div>
+      </aside>
+    </>
   );
 }
