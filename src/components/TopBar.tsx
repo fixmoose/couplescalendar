@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronLeft, ChevronRight, Menu, Moon, Search, Sun } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Menu, Moon, Search, StickyNote, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
 import { useSettings } from "@/lib/settings";
 import { useTheme } from "@/lib/theme";
@@ -24,6 +24,8 @@ export function TopBar({
   canGoBack,
   onBack,
   onMenu,
+  notesOpen,
+  onNotes,
 }: {
   date: Date;
   view: CalendarView;
@@ -39,6 +41,8 @@ export function TopBar({
   canGoBack: boolean;
   onBack: () => void;
   onMenu: () => void;
+  notesOpen: boolean;
+  onNotes: () => void;
 }) {
   const { theme } = useTheme();
   const settings = useSettings();
@@ -73,7 +77,7 @@ export function TopBar({
       </div>
 
       <h1 className="ml-0.5 truncate text-[16px] font-semibold tracking-tight text-ink sm:ml-1 sm:text-[19px]">
-        {view === "notes" ? "Notes" : periodLabel(date, view)}
+        {periodLabel(date, view)}
       </h1>
 
       <div className="ml-auto flex items-center gap-2.5">
@@ -101,7 +105,6 @@ export function TopBar({
           <option value="week">Week</option>
           <option value="month">Month</option>
           <option value="agenda">Agenda</option>
-          <option value="notes">Notes</option>
         </select>
 
         <span className="hidden sm:block">
@@ -113,10 +116,18 @@ export function TopBar({
               { value: "week", label: "Week", hint: "W" },
               { value: "month", label: "Month", hint: "M" },
               { value: "agenda", label: "Agenda", hint: "A" },
-              { value: "notes", label: "Notes", hint: "5" },
             ]}
           />
         </span>
+
+        <IconButton
+          onClick={onNotes}
+          active={notesOpen}
+          aria-label="Notes"
+          title="Notes — the shared piece of paper (5)"
+        >
+          <StickyNote size={17} />
+        </IconButton>
 
         <NotificationsMenu onOpenEvent={onOpenEvent} />
 

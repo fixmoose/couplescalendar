@@ -119,7 +119,7 @@ export interface CalendarEvent {
 
 export type Importance = "normal" | "urgent";
 
-export type CalendarView = "month" | "week" | "day" | "agenda" | "notes";
+export type CalendarView = "month" | "week" | "day" | "agenda";
 
 /**
  * A note on a shared piece of paper. Private when it has no group, shared with

@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { format, isToday, isYesterday } from "date-fns";
-import { Check, Lock, Pencil, Pin, PinOff, Send, Trash2, Users } from "lucide-react";
+import { Check, Lock, Pencil, Pin, PinOff, Send, StickyNote, Trash2, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { colorVar } from "@/lib/colors";
 import { useStore } from "@/lib/store";
@@ -152,7 +152,13 @@ function NoteCard({ note }: { note: Note }) {
   );
 }
 
-export function NotesView() {
+export function NotesPanel({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const store = useStore();
   const [board, setBoard] = useState<string>("me");
   const [text, setText] = useState("");
@@ -195,11 +201,28 @@ export function NotesView() {
 
   const group = store.groups.find((g) => g.id === board);
 
+  if (!open) return null;
+
   return (
-    <div className="flex min-h-0 flex-1 justify-center overflow-hidden bg-bg p-3 sm:p-6">
-      {/* The paper: a sheet on the desk rather than another grid. */}
-      <div className="flex min-h-0 w-full max-w-[680px] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow-md)]">
+    <>
+      {/* On a phone the paper covers the calendar; on a desk it lies beside it. */}
+      <button
+        type="button"
+        aria-label="Close notes"
+        onClick={onClose}
+        className="cc-fade fixed inset-0 z-40 bg-black/25 md:hidden"
+      />
+
+      <div
+        className={clsx(
+          "cc-pop fixed z-40 flex flex-col overflow-hidden border-line bg-surface shadow-[var(--shadow-lg)]",
+          // Half the desk, and never so wide that the calendar is lost.
+          "md:top-14 md:right-0 md:bottom-0 md:w-[min(560px,45vw)] md:border-l",
+          "max-md:inset-x-0 max-md:bottom-0 max-md:top-[15vh] max-md:rounded-t-2xl max-md:border-t",
+        )}
+      >
         <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+          <StickyNote size={15} className="shrink-0 text-brand" />
           <div className="cc-scroll flex min-w-0 flex-1 gap-1 overflow-x-auto">
             {boards.map(({ id, name, icon: Icon }) => (
               <button
@@ -218,6 +241,15 @@ export function NotesView() {
               </button>
             ))}
           </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close notes"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-surface-2 hover:text-ink"
+          >
+            <X size={15} />
+          </button>
         </div>
 
         <p className="border-b border-line px-4 py-1.5 text-[11px] text-ink-faint">
@@ -288,6 +320,6 @@ export function NotesView() {
           </Button>
         </div>
       </div>
-    </div>
+    </>
   );
 }

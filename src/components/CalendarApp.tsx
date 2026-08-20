@@ -48,7 +48,7 @@ import { DayPanel } from "./DayPanel";
 import { EventDialog } from "./EventDialog";
 import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
-import { NotesView } from "./NotesView";
+import { NotesPanel } from "./NotesView";
 import { NotificationPopout } from "./NotificationPopout";
 import { PersonPanel } from "./PersonPanel";
 import { ReminderWatcher } from "./ReminderWatcher";
@@ -68,7 +68,7 @@ type Dialog =
   | { kind: "group"; group?: Group }
   | null;
 
-const VIEWS: CalendarView[] = ["month", "week", "day", "agenda", "notes"];
+const VIEWS: CalendarView[] = ["month", "week", "day", "agenda"];
 
 /** The view and date live in the URL, so a reload (or a shared link) lands you back. */
 function readUrl(): { view: CalendarView | null; date: Date } {
@@ -104,6 +104,7 @@ export function CalendarApp() {
   /** Whether we have been anywhere else, so Back can be offered honestly. */
   const [canGoBack, setCanGoBack] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const isMobile = useIsMobile();
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
@@ -648,7 +649,7 @@ export function CalendarApp() {
       else if (key === "w" || key === "2") setView("week");
       else if (key === "m" || key === "3") setView("month");
       else if (key === "a" || key === "4") setView("agenda");
-      else if (key === "5") setView("notes");
+      else if (key === "5") setNotesOpen((v) => !v);
       else if (key === "n" || key === "c") newEventHere();
       else if (key === "arrowleft" || key === "k") step(-1);
       else if (key === "arrowright" || key === "j") step(1);
@@ -708,6 +709,8 @@ export function CalendarApp() {
             editEvent(event);
           }}
           onMenu={() => setMenuOpen((v) => !v)}
+          notesOpen={notesOpen}
+          onNotes={() => setNotesOpen((v) => !v)}
           onSettings={() => setSettingsOpen(true)}
           onTrash={() => setTrashOpen(true)}
           canGoBack={canGoBack}
@@ -735,7 +738,7 @@ export function CalendarApp() {
         {view === "agenda" && (
           <AgendaView date={date} events={events} handlers={handlers} />
         )}
-        {view === "notes" && <NotesView />}
+
       </main>
 
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
@@ -751,6 +754,8 @@ export function CalendarApp() {
           }}
         />
       )}
+
+      <NotesPanel open={notesOpen} onClose={() => setNotesOpen(false)} />
 
       <ReminderWatcher />
 
