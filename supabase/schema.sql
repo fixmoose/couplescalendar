@@ -1058,7 +1058,11 @@ create table if not exists cc_notes (
   updated_at timestamptz not null default now()
 );
 
+alter table if exists cc_notes
+  add column if not exists event_id uuid references cc_events (id) on delete set null;
+
 create index if not exists cc_notes_group_idx on cc_notes (group_id, created_at desc);
+create index if not exists cc_notes_event_idx on cc_notes (event_id);
 create index if not exists cc_notes_author_idx on cc_notes (created_by, created_at desc);
 
 drop trigger if exists cc_notes_touch on cc_notes;
@@ -1098,6 +1102,61 @@ begin
     where pubname = 'supabase_realtime' and tablename = 'cc_notes'
   ) then
     alter publication supabase_realtime add table cc_notes;
+  end if;
+end $$;
+
+create table if not exists cc_note_events (
+  note_id  uuid not null references cc_notes (id) on delete cascade,
+  event_id uuid not null references cc_events (id) on delete cascade,
+  pinned_by uuid not null default auth.uid() references cc_profiles (id) on delete cascade,
+  pinned_at timestamptz not null default now(),
+  primary key (note_id, event_id)
+);
+
+create index if not exists cc_note_events_event_idx on cc_note_events (event_id);
+
+alter table cc_note_events enable row level security;
+
+-- You may link a note you can read to an event you can see in full, and unlink
+-- the same. Neither table's policy refers back here, so nothing recurses.
+drop policy if exists cc_note_events_all on cc_note_events;
+create policy cc_note_events_all on cc_note_events for all
+  using (
+    exists (
+      select 1 from cc_notes n
+      where n.id = note_id
+        and (
+          n.created_by = auth.uid()
+          or (n.group_id is not null and cc_is_group_member(n.group_id, auth.uid()))
+        )
+    )
+  )
+  with check (
+    exists (
+      select 1 from cc_notes n
+      where n.id = note_id
+        and (
+          n.created_by = auth.uid()
+          or (n.group_id is not null and cc_is_group_member(n.group_id, auth.uid()))
+        )
+    )
+    and cc_event_access(event_id, auth.uid()) = 'full'
+  );
+
+-- Carry across anything pinned while a note could hold only one event.
+insert into cc_note_events (note_id, event_id, pinned_by)
+select n.id, n.event_id, n.created_by
+from cc_notes n
+where n.event_id is not null
+on conflict do nothing;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'cc_note_events'
+  ) then
+    alter publication supabase_realtime add table cc_note_events;
   end if;
 end $$;
 

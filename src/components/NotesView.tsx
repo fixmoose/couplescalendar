@@ -2,7 +2,20 @@
 
 import clsx from "clsx";
 import { format, isToday, isYesterday } from "date-fns";
-import { Check, Lock, Pencil, Pin, PinOff, Send, StickyNote, Trash2, Users, X } from "lucide-react";
+import {
+  CalendarDays,
+  Check,
+  Lock,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Send,
+  StickyNote,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { colorVar } from "@/lib/colors";
 import { useStore } from "@/lib/store";
@@ -30,6 +43,30 @@ function NoteCard({ note }: { note: Note }) {
   const mine = note.createdBy === store.currentUserId;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.body);
+  const [picking, setPicking] = useState(false);
+  const [search, setSearch] = useState("");
+  /** Stamped when the picker opens, so ordering does not read the clock mid-render. */
+  const [openedAt, setOpenedAt] = useState(0);
+
+  const attached = note.eventIds
+    .map((id) => store.visibleEvents.find((e) => e.id === id))
+    .filter((e) => e !== undefined);
+
+  // Upcoming first: a note is almost always about something still to come.
+  const candidates = useMemo(() => {
+    const now = openedAt;
+    const term = search.trim().toLowerCase();
+    return store.visibleEvents
+      .filter((e) => !e.masked && !note.eventIds.includes(e.id))
+      .filter((e) => (term ? e.title.toLowerCase().includes(term) : true))
+      .sort((a, b) => {
+        const at = new Date(a.start).getTime();
+        const bt = new Date(b.start).getTime();
+        // Still to come first; anything past falls below it.
+        return (at < now ? 1 : 0) - (bt < now ? 1 : 0) || at - bt;
+      })
+      .slice(0, 40);
+  }, [store.visibleEvents, search, note.eventIds, openedAt]);
 
   return (
     <div className={clsx("flex gap-2.5", mine && "flex-row-reverse")}>
@@ -44,7 +81,7 @@ function NoteCard({ note }: { note: Note }) {
         <span className="mt-1 h-7 w-7 shrink-0 rounded-full bg-surface-2" />
       )}
 
-      <div className={clsx("max-w-[78%] min-w-0", mine && "text-right")}>
+      <div className={clsx("relative max-w-[78%] min-w-0", mine && "text-right")}>
         <div
           className={clsx(
             "flex items-baseline gap-2 text-[11px] text-ink-faint",
@@ -113,6 +150,24 @@ function NoteCard({ note }: { note: Note }) {
             />
           )}
 
+          {/* The handshake: pin this note to something in the calendar. */}
+          {mine && !editing && (
+            <button
+              type="button"
+              title={attached ? "Change which event this belongs to" : "Attach this note to an event"}
+              onClick={() => {
+                setOpenedAt(Date.now());
+                setPicking((v) => !v);
+              }}
+              className={clsx(
+                "absolute top-2.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-ink-faint transition hover:border-brand hover:text-brand",
+                mine ? "-left-2.5" : "-right-2.5",
+              )}
+            >
+              <Plus size={12} />
+            </button>
+          )}
+
           {mine && !editing && (
             <div
               className={clsx(
@@ -147,6 +202,89 @@ function NoteCard({ note }: { note: Note }) {
             </div>
           )}
         </div>
+
+        {/* What it is pinned to, both ways round. */}
+        {attached.length > 0 && (
+          <div className={clsx("mt-1 flex flex-wrap gap-1", mine && "justify-end")}>
+            {attached.map((event) => (
+              <span
+                key={event.id}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-ink-muted"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("cc:open-event", { detail: event.id }),
+                    )
+                  }
+                  className="flex min-w-0 items-center gap-1.5 transition hover:text-brand"
+                >
+                  <CalendarDays size={11} className="shrink-0" />
+                  <span className="truncate">
+                    {event.title} · {format(new Date(event.start), "d MMM")}
+                  </span>
+                </button>
+                {mine && (
+                  <button
+                    type="button"
+                    title="Unpin from this event"
+                    onClick={() => store.unpinNoteFrom(note.id, event.id)}
+                    className="shrink-0 opacity-60 transition hover:opacity-100"
+                  >
+                    <X size={10} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {picking && (
+          <div
+            onMouseLeave={() => setPicking(false)}
+            className={clsx(
+              "cc-pop absolute z-20 mt-1 w-[280px] rounded-xl border border-line bg-surface p-1 text-left shadow-[var(--shadow-md)]",
+              mine ? "right-0" : "left-0",
+            )}
+          >
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Which event?"
+              className={`${controlClass} mb-1 w-full py-1.5 text-[13px]`}
+            />
+            <p className="px-2 pt-0.5 pb-1.5 text-[11px] text-ink-faint">
+              Pin to as many as you like.
+            </p>
+            <div className="cc-scroll max-h-[220px] overflow-y-auto">
+              {candidates.length === 0 && (
+                <p className="px-2 py-3 text-center text-[12px] text-ink-faint">
+                  {attached.length ? "Pinned to everything available." : "Nothing to pin it to yet."}
+                </p>
+              )}
+              {candidates.map((event) => (
+                <button
+                  key={event.id}
+                  type="button"
+                  onClick={() => {
+                    store.pinNoteTo(note.id, event.id);
+                    setSearch("");
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface-2"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                    {event.title}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-ink-faint tabular-nums">
+                    {format(new Date(event.start), "d MMM")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -166,7 +304,7 @@ export function NotesPanel({
 
   const boards = useMemo(
     () => [
-      { id: "me", name: "Just me", icon: Lock, count: 0 },
+      { id: "me", name: "Personal notes", icon: Lock, count: 0 },
       ...store.groups.map((g) => ({ id: g.id, name: g.name, icon: Users, count: 0 })),
     ],
     [store.groups],
@@ -255,7 +393,7 @@ export function NotesPanel({
         <p className="border-b border-line px-4 py-1.5 text-[11px] text-ink-faint">
           {group
             ? `Everyone in ${group.name} can read and add to this — ${group.memberIds.length} people.`
-            : "Only you can see these."}
+            : "Only you can see these, wherever you pin them."}
         </p>
 
         <div className="cc-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">

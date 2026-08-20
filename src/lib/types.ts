@@ -128,6 +128,8 @@ export type CalendarView = "month" | "week" | "day" | "agenda";
 export interface Note {
   id: string;
   groupId?: string;
+  /** The events this note is pinned to. A note can serve several. */
+  eventIds: string[];
   body: string;
   color: ColorKey;
   pinned: boolean;

@@ -347,6 +347,7 @@ export async function setSubscription(
 interface NoteRow {
   id: string;
   group_id: string | null;
+  event_id: string | null;
   body: string;
   color: string;
   pinned: boolean;
@@ -358,6 +359,7 @@ interface NoteRow {
 const toNote = (row: NoteRow): Note => ({
   id: row.id,
   groupId: row.group_id ?? undefined,
+  eventIds: [],
   body: row.body,
   color: asColor(row.color),
   pinned: row.pinned,
@@ -368,7 +370,7 @@ const toNote = (row: NoteRow): Note => ({
 
 export async function insertNote(
   supabase: Client,
-  note: { body: string; groupId?: string; color: ColorKey },
+  note: { body: string; groupId?: string; color: ColorKey; eventId?: string },
 ) {
   const id = crypto.randomUUID();
   const { error } = await supabase.from("cc_notes").insert({
@@ -378,7 +380,29 @@ export async function insertNote(
     color: note.color,
   });
   if (error) throw error;
+
+  if (note.eventId) await pinNoteToEvent(supabase, id, note.eventId);
   return id;
+}
+
+export async function pinNoteToEvent(supabase: Client, noteId: string, eventId: string) {
+  const { error } = await supabase
+    .from("cc_note_events")
+    .upsert({ note_id: noteId, event_id: eventId }, { onConflict: "note_id,event_id" });
+  if (error) throw error;
+}
+
+export async function unpinNoteFromEvent(
+  supabase: Client,
+  noteId: string,
+  eventId: string,
+) {
+  const { error } = await supabase
+    .from("cc_note_events")
+    .delete()
+    .eq("note_id", noteId)
+    .eq("event_id", eventId);
+  if (error) throw error;
 }
 
 export async function patchNote(
@@ -471,7 +495,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds] =
     await Promise.all([
       supabase
         .from("cc_profiles")
@@ -514,9 +538,10 @@ export async function loadWorkspace(
         .limit(50),
       supabase
         .from("cc_notes")
-        .select("id,group_id,body,color,pinned,created_by,created_at,updated_at")
+        .select("id,group_id,event_id,body,color,pinned,created_by,created_at,updated_at")
         .order("created_at", { ascending: false })
         .limit(300),
+      supabase.from("cc_note_events").select("note_id,event_id"),
       supabase
         .from("cc_calendar_feeds")
         .select(
@@ -548,6 +573,7 @@ export async function loadWorkspace(
     cc_event_items: items,
     cc_notifications: notifications,
     cc_notes: notes,
+    cc_note_events: noteLinks,
     cc_calendar_feeds: feeds,
   };
 
@@ -643,7 +669,12 @@ export async function loadWorkspace(
     acknowledged: ((acks.data ?? []) as { reminder_id: string; due_at: string }[]).map(
       (row) => `${row.reminder_id}:${new Date(row.due_at).toISOString()}`,
     ),
-    notes: ((notes.data ?? []) as NoteRow[]).map(toNote),
+    notes: ((notes.data ?? []) as NoteRow[]).map((row) => ({
+      ...toNote(row),
+      eventIds: ((noteLinks.data ?? []) as { note_id: string; event_id: string }[])
+        .filter((l) => l.note_id === row.id)
+        .map((l) => l.event_id),
+    })),
     missing,
   };
 }

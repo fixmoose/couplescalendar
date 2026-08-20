@@ -28,6 +28,7 @@ import type {
   Importance,
   ListKind,
   Invite,
+  Note,
   Person,
   Privacy,
   ReminderDraft,
@@ -141,7 +142,17 @@ interface StoreValue extends Data {
   /** Whether events shared with me mark me busy to my groups. */
   setSharedBusy: (on: boolean) => void;
   /** Shared notes: yours, and your groups'. */
-  addNote: (note: { body: string; groupId?: string; color: ColorKey }) => void;
+  addNote: (note: {
+    body: string;
+    groupId?: string;
+    color: ColorKey;
+    eventId?: string;
+  }) => void;
+  /** Pin a note to an event, or take it off one. A note may serve several. */
+  pinNoteTo: (noteId: string, eventId: string) => void;
+  unpinNoteFrom: (noteId: string, eventId: string) => void;
+  /** The notes pinned to one event, as far as this viewer may see them. */
+  notesFor: (eventId: string) => Note[];
   editNote: (id: string, body: string) => void;
   pinNote: (id: string, pinned: boolean) => void;
   removeNote: (id: string) => void;
@@ -303,6 +314,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reload,
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "cc_notes" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cc_note_events" }, reload)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cc_event_shares" },
@@ -1117,6 +1129,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 id: `tmp_${crypto.randomUUID()}`,
                 body: note.body,
                 groupId: note.groupId,
+                eventIds: note.eventId ? [note.eventId] : [],
                 color: note.color,
                 pinned: false,
                 createdBy: userId,
@@ -1131,6 +1144,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             await refresh();
           },
         ),
+
+      pinNoteTo: (noteId, eventId) =>
+        write(
+          (s) => ({
+            ...s,
+            notes: s.notes.map((n) =>
+              n.id === noteId && !n.eventIds.includes(eventId)
+                ? { ...n, eventIds: [...n.eventIds, eventId] }
+                : n,
+            ),
+          }),
+          () => db.pinNoteToEvent(supabase, noteId, eventId),
+        ),
+
+      unpinNoteFrom: (noteId, eventId) =>
+        write(
+          (s) => ({
+            ...s,
+            notes: s.notes.map((n) =>
+              n.id === noteId
+                ? { ...n, eventIds: n.eventIds.filter((id) => id !== eventId) }
+                : n,
+            ),
+          }),
+          () => db.unpinNoteFromEvent(supabase, noteId, eventId),
+        ),
+
+      notesFor: (eventId) => d.notes.filter((n) => n.eventIds.includes(eventId)),
 
       editNote: (id, body) =>
         write(
@@ -1280,6 +1321,7 @@ function deltaFor(missing: string[]) {
     else if (table === "cc_event_reminders") files.add("supabase/delta-reminders.sql");
     else if (table === "cc_calendar_feeds") files.add("supabase/delta-calendar-sync.sql");
     else if (table === "cc_notes") files.add("supabase/delta-notes.sql");
+    else if (table === "cc_note_events") files.add("supabase/delta-note-events.sql");
     else files.add("supabase/schema.sql");
   }
   return [...files].join(" and ");
