@@ -30,6 +30,7 @@ import { colorVar, COLOR_KEYS, COLORS } from "@/lib/colors";
 import { timeLabel, weekDays } from "@/lib/date";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes, titleFromFileName } from "@/lib/files";
+import { useSettings } from "@/lib/settings";
 import { useStore } from "@/lib/store";
 import {
   DEFAULT_REMINDERS,
@@ -48,6 +49,7 @@ import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
 import { PersonPanel } from "./PersonPanel";
 import { ReminderWatcher } from "./ReminderWatcher";
+import { SettingsDialog } from "./SettingsDialog";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
@@ -65,14 +67,14 @@ type Dialog =
 const VIEWS: CalendarView[] = ["month", "week", "day", "agenda"];
 
 /** The view and date live in the URL, so a reload (or a shared link) lands you back. */
-function readUrl() {
-  if (typeof window === "undefined") return { view: "week" as CalendarView, date: new Date() };
+function readUrl(): { view: CalendarView | null; date: Date } {
+  if (typeof window === "undefined") return { view: null, date: new Date() };
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view") as CalendarView | null;
   const raw = params.get("date");
   const parsed = raw ? new Date(`${raw}T00:00:00`) : null;
   return {
-    view: view && VIEWS.includes(view) ? view : ("week" as CalendarView),
+    view: view && VIEWS.includes(view) ? view : null,
     date: parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date(),
   };
 }
@@ -80,7 +82,10 @@ function readUrl() {
 export function CalendarApp() {
   const store = useStore();
   const [date, setDate] = useState(() => readUrl().date);
-  const [view, setView] = useState<CalendarView>(() => readUrl().view);
+  const settings = useSettings();
+  const [view, setView] = useState<CalendarView>(
+    () => readUrl().view ?? settings.defaultView,
+  );
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -90,6 +95,7 @@ export function CalendarApp() {
   const [person, setPerson] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
     null,
@@ -609,6 +615,7 @@ export function CalendarApp() {
             setDate(new Date(event.start));
             editEvent(event);
           }}
+          onSettings={() => setSettingsOpen(true)}
         />
 
         {view === "month" && (
@@ -647,6 +654,8 @@ export function CalendarApp() {
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
 
       {subscribing && <SubscribeDialog onClose={() => setSubscribing(false)} />}
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
 
       <Toast
         message={

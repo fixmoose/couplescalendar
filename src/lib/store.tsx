@@ -279,12 +279,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const write = useCallback(
     (optimistic: (d: Data) => Data, query: () => Promise<unknown>) => {
       setData((current) => (current ? optimistic(current) : current));
-      query().catch((e) => {
-        setError(describe(e));
+      query().catch(async (e) => {
+        setError(describe(e, await sessionNote(supabase)));
         void refresh();
       });
     },
-    [refresh],
+    [refresh, supabase],
   );
 
   const savePrefs = useCallback(
@@ -991,12 +991,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 }
 
 /**
+ * A refusal usually means the request arrived without a session, so say so
+ * rather than leaving somebody to guess at row level security.
+ */
+async function sessionNote(supabase: SupabaseClient) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return "You are signed out — reload the page and sign in again.";
+  const expires = session.expires_at ? session.expires_at * 1000 : 0;
+  if (expires && expires < Date.now()) {
+    return "Your session has expired — reload the page.";
+  }
+  return `signed in as ${session.user.email ?? session.user.id.slice(0, 8)}`;
+}
+
+/**
  * Turns a Postgres/PostgREST error into something a person can act on — while
  * still showing the underlying message, because a friendly summary alone made
  * a permissions problem impossible to diagnose.
  */
-function describe(e: unknown) {
-  if (typeof e !== "object" || !e) return "Something went wrong.";
+function describe(e: unknown, note?: string) {
+  const suffix = note ? ` (${note})` : "";
+  if (typeof e !== "object" || !e) return `Something went wrong.${suffix}`;
 
   const error = e as { message?: string; code?: string; details?: string; hint?: string };
   const message = String(error.message ?? "");
@@ -1011,7 +1028,7 @@ function describe(e: unknown) {
     return `Database tables are missing — run supabase/schema.sql in the Supabase SQL editor.${code} ${message}`;
   }
   if (message.includes("row-level security")) {
-    return `Refused by the database${code}: ${message}${detail ? ` (${detail})` : ""}`;
+    return `Refused by the database${code}: ${message}${detail ? ` — ${detail}` : ""}${suffix}`;
   }
   return `${message}${code}${detail ? ` — ${detail}` : ""}` || "Something went wrong.";
 }

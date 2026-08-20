@@ -8,19 +8,27 @@ import {
   startOfDay,
   startOfWeek,
 } from "date-fns";
+import { preferences } from "./settings";
 import type { CalendarEvent } from "./types";
 
-/** 1 = Monday. Change here (later: a user setting) to move the week start. */
+/**
+ * Week start and clock format come from the viewer's settings. These helpers
+ * are pure functions called from everywhere, so they read the mirrored
+ * preferences rather than taking the values as arguments — see lib/settings.
+ */
+export const weekStartsOn = () => preferences().weekStartsOn;
+
+/** Kept for the seed and anything that needs a fixed value. */
 export const WEEK_STARTS_ON = 1 as const;
 
 export const MINUTES_PER_DAY = 24 * 60;
 
 export function weekStart(d: Date) {
-  return startOfWeek(d, { weekStartsOn: WEEK_STARTS_ON });
+  return startOfWeek(d, { weekStartsOn: weekStartsOn() });
 }
 
 export function weekEnd(d: Date) {
-  return endOfWeek(d, { weekStartsOn: WEEK_STARTS_ON });
+  return endOfWeek(d, { weekStartsOn: weekStartsOn() });
 }
 
 export function weekDays(d: Date): Date[] {
@@ -231,14 +239,14 @@ export function layoutDay(events: CalendarEvent[], day: Date): Positioned[] {
  * Formatting
  * ------------------------------------------------------------------ */
 
-export function timeLabel(d: Date, hour12 = false) {
+export function timeLabel(d: Date, hour12 = preferences().hour12) {
   if (hour12) {
     return format(d, d.getMinutes() === 0 ? "h a" : "h:mm a").toLowerCase();
   }
   return format(d, "HH:mm");
 }
 
-export function rangeLabel(e: CalendarEvent, hour12 = false) {
+export function rangeLabel(e: CalendarEvent, hour12 = preferences().hour12) {
   const { start, end } = eventRange(e);
   if (e.allDay) return "All day";
   return `${timeLabel(start, hour12)} – ${timeLabel(end, hour12)}`;

@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
+import { useSettings } from "@/lib/settings";
 import { useTheme } from "@/lib/theme";
 import type { CalendarEvent, CalendarView } from "@/lib/types";
 import { AccountMenu } from "./AccountMenu";
@@ -18,6 +19,7 @@ export function TopBar({
   onToday,
   onView,
   onOpenEvent,
+  onSettings,
 }: {
   date: Date;
   view: CalendarView;
@@ -28,8 +30,10 @@ export function TopBar({
   onToday: () => void;
   onView: (view: CalendarView) => void;
   onOpenEvent: (event: CalendarEvent) => void;
+  onSettings: () => void;
 }) {
-  const { theme, toggle } = useTheme();
+  const { theme } = useTheme();
+  const settings = useSettings();
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
@@ -77,11 +81,15 @@ export function TopBar({
 
         <NotificationsMenu onOpenEvent={onOpenEvent} />
 
-        <IconButton onClick={toggle} aria-label="Toggle theme">
+        <IconButton
+          onClick={() => settings.set("theme", theme === "dark" ? "light" : "dark")}
+          aria-label="Toggle theme"
+          title="Switch theme — more in Settings"
+        >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </IconButton>
 
-        <AccountMenu />
+        <AccountMenu onSettings={onSettings} />
       </div>
     </header>
   );
