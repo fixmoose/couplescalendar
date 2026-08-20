@@ -140,6 +140,11 @@ interface StoreValue extends Data {
   /** How the viewer wants to hear about one event. */
   /** Whether events shared with me mark me busy to my groups. */
   setSharedBusy: (on: boolean) => void;
+  /** Shared notes: yours, and your groups'. */
+  addNote: (note: { body: string; groupId?: string; color: ColorKey }) => void;
+  editNote: (id: string, body: string) => void;
+  pinNote: (id: string, pinned: boolean) => void;
+  removeNote: (id: string) => void;
   setEventSubscription: (
     eventId: string,
     patch: Partial<{ email: boolean; mobile: boolean }>,
@@ -199,6 +204,7 @@ const EMPTY: Data = {
   feeds: [],
   notifications: [],
   acknowledged: [],
+  notes: [],
   missing: [],
   busyHidden: [],
 };
@@ -296,6 +302,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         { event: "*", schema: "public", table: "cc_reminder_acks", filter: `user_id=eq.${user.id}` },
         reload,
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "cc_notes" }, reload)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cc_event_shares" },
@@ -1101,6 +1108,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }),
         ),
 
+      addNote: (note) =>
+        write(
+          (s) => ({
+            ...s,
+            notes: [
+              {
+                id: `tmp_${crypto.randomUUID()}`,
+                body: note.body,
+                groupId: note.groupId,
+                color: note.color,
+                pinned: false,
+                createdBy: userId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              ...s.notes,
+            ],
+          }),
+          async () => {
+            await db.insertNote(supabase, note);
+            await refresh();
+          },
+        ),
+
+      editNote: (id, body) =>
+        write(
+          (s) => ({
+            ...s,
+            notes: s.notes.map((n) => (n.id === id ? { ...n, body } : n)),
+          }),
+          () => db.patchNote(supabase, id, { body }),
+        ),
+
+      pinNote: (id, pinned) =>
+        write(
+          (s) => ({
+            ...s,
+            notes: s.notes.map((n) => (n.id === id ? { ...n, pinned } : n)),
+          }),
+          () => db.patchNote(supabase, id, { pinned }),
+        ),
+
+      removeNote: (id) =>
+        write(
+          (s) => ({ ...s, notes: s.notes.filter((n) => n.id !== id) }),
+          () => db.deleteNote(supabase, id),
+        ),
+
       setSharedBusy: (on) =>
         write(
           (s) => ({
@@ -1224,6 +1279,7 @@ function deltaFor(missing: string[]) {
     else if (table === "cc_notifications") files.add("supabase/delta-reminders-v2.sql");
     else if (table === "cc_event_reminders") files.add("supabase/delta-reminders.sql");
     else if (table === "cc_calendar_feeds") files.add("supabase/delta-calendar-sync.sql");
+    else if (table === "cc_notes") files.add("supabase/delta-notes.sql");
     else files.add("supabase/schema.sql");
   }
   return [...files].join(" and ");

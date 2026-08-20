@@ -119,7 +119,22 @@ export interface CalendarEvent {
 
 export type Importance = "normal" | "urgent";
 
-export type CalendarView = "month" | "week" | "day" | "agenda";
+export type CalendarView = "month" | "week" | "day" | "agenda" | "notes";
+
+/**
+ * A note on a shared piece of paper. Private when it has no group, shared with
+ * everyone in the group when it has one — the same rule as a calendar.
+ */
+export interface Note {
+  id: string;
+  groupId?: string;
+  body: string;
+  color: ColorKey;
+  pinned: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 /** Draft used by the event dialog before an id exists. */
 export interface EventDraft {

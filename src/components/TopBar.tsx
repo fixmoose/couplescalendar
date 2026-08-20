@@ -73,7 +73,7 @@ export function TopBar({
       </div>
 
       <h1 className="ml-0.5 truncate text-[16px] font-semibold tracking-tight text-ink sm:ml-1 sm:text-[19px]">
-        {periodLabel(date, view)}
+        {view === "notes" ? "Notes" : periodLabel(date, view)}
       </h1>
 
       <div className="ml-auto flex items-center gap-2.5">
@@ -101,6 +101,7 @@ export function TopBar({
           <option value="week">Week</option>
           <option value="month">Month</option>
           <option value="agenda">Agenda</option>
+          <option value="notes">Notes</option>
         </select>
 
         <span className="hidden sm:block">
@@ -112,6 +113,7 @@ export function TopBar({
               { value: "week", label: "Week", hint: "W" },
               { value: "month", label: "Month", hint: "M" },
               { value: "agenda", label: "Agenda", hint: "A" },
+              { value: "notes", label: "Notes", hint: "5" },
             ]}
           />
         </span>

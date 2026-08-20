@@ -16,6 +16,7 @@ import type {
   Importance,
   Invite,
   ListKind,
+  Note,
   DeletedEvent,
   Person,
   Privacy,
@@ -160,6 +161,7 @@ export interface Workspace {
   notifications: AppNotification[];
   /** "<reminder id>:<occurrence ISO>" for everything already answered. */
   acknowledged: string[];
+  notes: Note[];
   /** Tables the database does not have yet, so the UI can say which. */
   missing: string[];
 }
@@ -342,6 +344,57 @@ export async function setSubscription(
   if (error) throw error;
 }
 
+interface NoteRow {
+  id: string;
+  group_id: string | null;
+  body: string;
+  color: string;
+  pinned: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const toNote = (row: NoteRow): Note => ({
+  id: row.id,
+  groupId: row.group_id ?? undefined,
+  body: row.body,
+  color: asColor(row.color),
+  pinned: row.pinned,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export async function insertNote(
+  supabase: Client,
+  note: { body: string; groupId?: string; color: ColorKey },
+) {
+  const id = crypto.randomUUID();
+  const { error } = await supabase.from("cc_notes").insert({
+    id,
+    body: note.body,
+    group_id: note.groupId ?? null,
+    color: note.color,
+  });
+  if (error) throw error;
+  return id;
+}
+
+export async function patchNote(
+  supabase: Client,
+  id: string,
+  changes: Record<string, unknown>,
+) {
+  const { error } = await supabase.from("cc_notes").update(changes).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteNote(supabase: Client, id: string) {
+  const { error } = await supabase.from("cc_notes").delete().eq("id", id);
+  if (error) throw error;
+}
+
 /** Whether events shared with me mark me busy to my groups. */
 export async function setSharedBusy(supabase: Client, on: boolean) {
   const { error } = await supabase
@@ -418,7 +471,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, feeds] =
     await Promise.all([
       supabase
         .from("cc_profiles")
@@ -460,6 +513,11 @@ export async function loadWorkspace(
         .order("created_at", { ascending: false })
         .limit(50),
       supabase
+        .from("cc_notes")
+        .select("id,group_id,body,color,pinned,created_by,created_at,updated_at")
+        .order("created_at", { ascending: false })
+        .limit(300),
+      supabase
         .from("cc_calendar_feeds")
         .select(
           "id,calendar_id,name,url,mode,interval_minutes,last_synced_at,last_status,last_error,event_count",
@@ -489,6 +547,7 @@ export async function loadWorkspace(
     cc_reminder_acks: acks,
     cc_event_items: items,
     cc_notifications: notifications,
+    cc_notes: notes,
     cc_calendar_feeds: feeds,
   };
 
@@ -584,6 +643,7 @@ export async function loadWorkspace(
     acknowledged: ((acks.data ?? []) as { reminder_id: string; due_at: string }[]).map(
       (row) => `${row.reminder_id}:${new Date(row.due_at).toISOString()}`,
     ),
+    notes: ((notes.data ?? []) as NoteRow[]).map(toNote),
     missing,
   };
 }
