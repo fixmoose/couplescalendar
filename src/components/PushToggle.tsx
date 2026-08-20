@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { disablePush, enablePush, pushEnabled, pushSupported } from "@/lib/push";
 import { useStore } from "@/lib/store";
 import { NotificationHelp } from "./NotificationHelp";
+import { PushDevices } from "./PushDevices";
 
 const isEdge = () =>
   typeof navigator !== "undefined" && /\bEdg\//.test(navigator.userAgent);
@@ -42,6 +43,9 @@ export function PushToggle() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  // Bumped whenever this device subscribes or unsubscribes, so the list below
+  // reflects what just happened.
+  const [changed, setChanged] = useState(0);
 
   useEffect(() => {
     void pushEnabled().then(setOn);
@@ -70,10 +74,12 @@ export function PushToggle() {
     if (on) {
       await disablePush(supabase);
       setOn(false);
+      setChanged((n) => n + 1);
     } else {
       const result = await enablePush(supabase);
       if (result.ok) {
         setOn(true);
+        setChanged((n) => n + 1);
       } else {
         setNote(advice(result.reason, "error" in result ? result.error : undefined));
         setShowHelp(true);
@@ -134,6 +140,8 @@ export function PushToggle() {
       )}
 
       {showHelp && <NotificationHelp className="mt-2" />}
+
+      <PushDevices refreshKey={changed} />
     </div>
   );
 }
