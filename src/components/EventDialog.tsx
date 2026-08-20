@@ -39,19 +39,37 @@ export function EventDialog({
   draft,
   event,
   onClose,
+  onSaved,
 }: {
   draft: EventDraft;
   /** Present when editing — carries sharing state the draft does not. */
   event?: CalendarEvent;
   onClose: () => void;
+  onSaved?: (start: Date) => void;
 }) {
   const store = useStore();
   const [form, setForm] = useState<EventDraft>(draft);
+  /** Once the end has been touched, stop moving it about. */
+  const [endTouched, setEndTouched] = useState(Boolean(draft.id));
   const isEdit = Boolean(draft.id);
   const editable = event ? store.canEditEvent(event) : true;
 
   const set = <K extends keyof EventDraft>(key: K, value: EventDraft[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  /**
+   * Most events run an hour on the day they start, so setting the start
+   * carries the end with it — until the end is set by hand, after which it
+   * keeps whatever length it was given.
+   */
+  const setStart = (start: Date) =>
+    setForm((f) => {
+      if (endTouched) {
+        const length = Math.max(15 * 60_000, f.end.getTime() - f.start.getTime());
+        return { ...f, start, end: new Date(start.getTime() + length) };
+      }
+      return { ...f, start, end: new Date(start.getTime() + 60 * 60_000) };
+    });
 
   const save = () => {
     let { start, end } = form;
@@ -66,6 +84,7 @@ export function EventDialog({
     const next = { ...form, start, end };
     if (next.id) store.updateEvent({ ...next, id: next.id });
     else store.createEvent(next);
+    onSaved?.(start);
     onClose();
   };
 
@@ -131,14 +150,14 @@ export function EventDialog({
             <input
               type="date"
               value={dateValue(form.start)}
-              onChange={(e) => set("start", withDate(form.start, e.target.value))}
+              onChange={(e) => setStart(withDate(form.start, e.target.value))}
               className={`${controlClass} min-w-0 flex-1`}
             />
             {!form.allDay && (
               <input
                 type="time"
                 value={timeValue(form.start)}
-                onChange={(e) => set("start", withTime(form.start, e.target.value))}
+                onChange={(e) => setStart(withTime(form.start, e.target.value))}
                 className={`${controlClass} w-[132px] shrink-0`}
               />
             )}
@@ -150,14 +169,20 @@ export function EventDialog({
             <input
               type="date"
               value={dateValue(form.end)}
-              onChange={(e) => set("end", withDate(form.end, e.target.value))}
+              onChange={(e) => {
+                setEndTouched(true);
+                set("end", withDate(form.end, e.target.value));
+              }}
               className={`${controlClass} min-w-0 flex-1`}
             />
             {!form.allDay && (
               <input
                 type="time"
                 value={timeValue(form.end)}
-                onChange={(e) => set("end", withTime(form.end, e.target.value))}
+                onChange={(e) => {
+                  setEndTouched(true);
+                  set("end", withTime(form.end, e.target.value));
+                }}
                 className={`${controlClass} w-[132px] shrink-0`}
               />
             )}

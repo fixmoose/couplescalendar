@@ -14,6 +14,7 @@ import {
 import { canEdit, participantIds } from "./access";
 import * as db from "./db";
 import { inviteToEvent } from "./invites";
+import { deliverNow } from "./push";
 import { createClient, ensureSession } from "./supabase/client";
 import type {
   Attachment,
@@ -475,6 +476,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           async () => {
             const id = await db.insertEvent(supabase, draft, userId);
             await sendInvites(id, draft);
+            await pushFreshShares(supabase, id);
             await refresh();
           },
         ),
@@ -502,6 +504,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           async () => {
             await db.updateEvent(supabase, draft.id, draft, userId);
             await sendInvites(draft.id, draft);
+            await pushFreshShares(supabase, draft.id);
             await refresh();
           },
         ),
@@ -549,7 +552,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : [...event.sharedWith, personId];
         write(
           mapEvents((e) => (e.id === eventId ? { ...e, sharedWith: next } : e)),
-          () => db.setShares(supabase, eventId, next, userId),
+          async () => {
+            await db.setShares(supabase, eventId, next, userId);
+            await pushFreshShares(supabase, eventId);
+          },
         );
       },
 
@@ -1012,6 +1018,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [data, error, refresh, savePrefs, supabase, user, write]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+/**
+ * A share writes a notification by trigger; this asks the server to push it
+ * out now, so the other person hears about it with the calendar closed rather
+ * than whenever the cron next runs.
+ */
+async function pushFreshShares(supabase: SupabaseClient, eventId: string) {
+  try {
+    const { data } = await supabase
+      .from("cc_notifications")
+      .select("id")
+      .eq("event_id", eventId)
+      .is("pushed_at", null)
+      .limit(20);
+    await deliverNow((data ?? []).map((n) => n.id as string));
+  } catch {
+    /* the cron is the backstop */
+  }
 }
 
 /** Sends a failed write to the server log, so it can be read from outside. */

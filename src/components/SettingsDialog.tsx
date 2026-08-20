@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { Clock, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 import { useSettings, type Settings } from "@/lib/settings";
 import type { CalendarView } from "@/lib/types";
+import { PushToggle } from "./PushToggle";
 import { Button, Field, Modal } from "./ui";
 
 function Choice<T extends string | number | boolean>({
@@ -124,6 +125,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               { value: false, label: "Same as weekdays" },
             ]}
           />
+        </Field>
+
+        <Field label="Notifications on this device">
+          <PushToggle />
         </Field>
 
         <p className="text-[12px] leading-relaxed text-ink-faint">

@@ -47,6 +47,7 @@ import { DayPanel } from "./DayPanel";
 import { EventDialog } from "./EventDialog";
 import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
+import { NotificationPopout } from "./NotificationPopout";
 import { PersonPanel } from "./PersonPanel";
 import { ReminderWatcher } from "./ReminderWatcher";
 import { SettingsDialog } from "./SettingsDialog";
@@ -651,6 +652,13 @@ export function CalendarApp() {
 
       <ReminderWatcher />
 
+      <NotificationPopout
+        onOpenEvent={(event) => {
+          setDate(new Date(event.start));
+          editEvent(event);
+        }}
+      />
+
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
 
       {subscribing && <SubscribeDialog onClose={() => setSubscribing(false)} />}
@@ -676,6 +684,12 @@ export function CalendarApp() {
           draft={dialog.draft}
           event={dialog.event}
           onClose={() => setDialog(null)}
+          onSaved={(start) => {
+            // Land on the week the event is in, so it is visible rather than
+            // saved somewhere you are not looking.
+            setDate(start);
+            setSlot(null);
+          }}
         />
       )}
       {dialog?.kind === "calendar" && (
