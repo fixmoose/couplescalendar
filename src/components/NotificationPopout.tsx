@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { format } from "date-fns";
-import { CalendarDays, Clock, MapPin, X } from "lucide-react";
+import { CalendarDays, Check, Clock, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import type { AppNotification, CalendarEvent } from "@/lib/types";
@@ -75,16 +75,49 @@ export function NotificationPopout({
       }
     }
 
-    setQueue((current) => [...fresh, ...current].slice(0, 3));
+    // Every one is kept: each concerns a different event and each wants an
+    // answer, so none is dropped to make room.
+    setQueue((current) => [...fresh, ...current]);
   }, [store.notifications]);
 
-  if (!queue.length) return null;
+
+
+  // Answered anywhere means answered everywhere: a notification marked read on
+  // another device is no longer waiting here.
+  const unread = new Set(
+    store.notifications.filter((n) => !n.readAt).map((n) => n.id),
+  );
+  const waiting = queue.filter((n) => unread.has(n.id));
+
+  if (!waiting.length) return null;
 
   const dismiss = (id: string) => setQueue((q) => q.filter((n) => n.id !== id));
 
+  const seeAll = () => {
+    store.markNotificationsRead(waiting.map((n) => n.id));
+    setQueue([]);
+  };
+
   return (
-    <div className="pointer-events-none fixed top-4 right-4 z-[65] flex w-[340px] flex-col gap-2">
-      {queue.map((n) => {
+    <div className="pointer-events-none fixed top-4 right-4 z-[65] flex max-h-[calc(100vh-2rem)] w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-2">
+      {waiting.length > 1 && (
+        <div className="cc-pop pointer-events-auto flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] shadow-[var(--shadow-sm)]">
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-white">
+            {waiting.length}
+          </span>
+          <span className="text-ink-muted">waiting</span>
+          <button
+            type="button"
+            onClick={seeAll}
+            className="ml-auto font-medium text-brand hover:underline"
+          >
+            Confirm all seen
+          </button>
+        </div>
+      )}
+
+      <div className="cc-scroll pointer-events-auto flex min-h-0 flex-col gap-2 overflow-y-auto">
+      {waiting.map((n) => {
         const actor = n.actorId ? store.personById(n.actorId) : undefined;
         const event = store.visibleEvents.find((e) => e.id === n.eventId);
         const start = event ? new Date(event.start) : null;
@@ -127,23 +160,14 @@ export function NotificationPopout({
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  store.markNotificationsRead([n.id]);
-                  dismiss(n.id);
-                }}
-                title="Dismiss"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-surface-2 hover:text-ink"
-              >
-                <X size={13} />
-              </button>
+
             </div>
 
+            {/* Two answers, and it waits until it gets one. */}
             <div className={clsx("flex gap-2 border-t border-line px-3 py-2")}>
               <Button
                 variant="primary"
-                className="h-8 flex-1 justify-center text-[13px]"
+                className="h-9 flex-1 justify-center text-[13px]"
                 disabled={!event}
                 onClick={() => {
                   if (!event) return;
@@ -152,22 +176,24 @@ export function NotificationPopout({
                   onOpenEvent(event);
                 }}
               >
-                See it in my calendar
+                See the event in the calendar
               </Button>
               <Button
-                variant="ghost"
-                className="h-8 text-[13px]"
+                variant="outline"
+                className="h-9 shrink-0 text-[13px]"
+                title="Mark it read and put it away"
                 onClick={() => {
                   store.markNotificationsRead([n.id]);
                   dismiss(n.id);
                 }}
               >
-                Later
+                <Check size={14} /> Confirmed seen
               </Button>
             </div>
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

@@ -119,6 +119,8 @@ interface StoreValue extends Data {
   setEventPrivacy: (eventId: string, privacy: Privacy | undefined) => void;
   setEventImportance: (eventId: string, importance: Importance) => void;
   setEventReminders: (eventId: string, reminders: ReminderDraft[]) => void;
+  /** Answer a reminder for one occurrence, on every device at once. */
+  acknowledgeReminder: (reminderId: string, dueAt: string) => void;
   /** The list attached to an event — anyone who can see it may work it. */
   setListKind: (eventId: string, kind: ListKind) => void;
   addItem: (
@@ -190,6 +192,7 @@ const EMPTY: Data = {
   invites: [],
   feeds: [],
   notifications: [],
+  acknowledged: [],
   busyHidden: [],
 };
 
@@ -271,6 +274,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cc_event_items" },
+        reload,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cc_reminder_acks", filter: `user_id=eq.${user.id}` },
         reload,
       )
       .on(
@@ -685,6 +693,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             await db.setReminders(supabase, eventId, reminders, userId);
             await refresh();
           },
+        ),
+
+      acknowledgeReminder: (reminderId, dueAt) =>
+        write(
+          (s) => ({
+            ...s,
+            acknowledged: [...s.acknowledged, `${reminderId}:${dueAt}`],
+          }),
+          () => db.acknowledgeReminder(supabase, reminderId, dueAt),
         ),
 
       setListKind: (eventId, kind) =>

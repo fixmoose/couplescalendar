@@ -156,6 +156,8 @@ export interface Workspace {
   invites: Invite[];
   feeds: Feed[];
   notifications: AppNotification[];
+  /** "<reminder id>:<occurrence ISO>" for everything already answered. */
+  acknowledged: string[];
 }
 
 interface FeedRow {
@@ -303,6 +305,24 @@ export async function deleteItem(supabase: Client, id: string) {
   if (error) throw error;
 }
 
+/**
+ * An answered reminder, keyed by occurrence. Written once and seen by every
+ * device, so a reminder confirmed on a phone stops asking on the laptop.
+ */
+export async function acknowledgeReminder(
+  supabase: Client,
+  reminderId: string,
+  dueAt: string,
+) {
+  const { error } = await supabase
+    .from("cc_reminder_acks")
+    .upsert(
+      { reminder_id: reminderId, due_at: dueAt },
+      { onConflict: "reminder_id,user_id,due_at" },
+    );
+  if (error) throw error;
+}
+
 /** The viewer's own delivery choice for one event. */
 export async function setSubscription(
   supabase: Client,
@@ -385,7 +405,7 @@ export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, items, notifications, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, feeds] =
     await Promise.all([
       supabase.from("cc_profiles").select("id,email,display_name,avatar_color,avatar_url"),
       supabase.from("cc_groups").select("id,name,owner_id"),
@@ -412,6 +432,10 @@ export async function loadWorkspace(
         .select("id,event_id,minutes_before,channel,user_id"),
       supabase.from("cc_event_subscriptions").select("event_id,email,mobile"),
       supabase
+        .from("cc_reminder_acks")
+        .select("reminder_id,due_at")
+        .gte("due_at", new Date(Date.now() - 7 * 86400_000).toISOString()),
+      supabase
         .from("cc_event_items")
         .select("id,event_id,text,quantity,assigned_to,done,done_by,position")
         .order("position"),
@@ -428,7 +452,7 @@ export async function loadWorkspace(
         .order("created_at"),
     ]);
 
-  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, items, notifications, feeds]
+  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, feeds]
     .map((r) => r.error)
     .find(Boolean);
   if (firstError) throw firstError;
@@ -511,6 +535,9 @@ export async function loadWorkspace(
     invites: ((invites.data ?? []) as InviteRow[]).map(toInvite),
     feeds: ((feeds.data ?? []) as FeedRow[]).map(toFeed),
     notifications: ((notifications.data ?? []) as NotificationRow[]).map(toNotification),
+    acknowledged: ((acks.data ?? []) as { reminder_id: string; due_at: string }[]).map(
+      (row) => `${row.reminder_id}:${new Date(row.due_at).toISOString()}`,
+    ),
   };
 }
 

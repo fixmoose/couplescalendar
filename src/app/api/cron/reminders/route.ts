@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/server";
 
 /**
@@ -156,15 +157,151 @@ export async function GET(request: Request) {
     }
   }
 
+  const pushed = await pushDueReminders(admin);
   const mailed = await flushNotificationEmails(admin, apiKey);
 
   return NextResponse.json({
     considered: rows.length,
     due: due.length,
     sent,
+    remindersPushed: pushed,
     notificationsEmailed: mailed,
     ...(skipped.length ? { skippedNoMailKey: skipped.length } : {}),
   });
+}
+
+/**
+ * Pushes the browser reminders that have come due, so they arrive with the
+ * calendar closed. Answering one anywhere records an acknowledgement, and the
+ * delivery row keeps this from sending the same occurrence twice.
+ */
+async function pushDueReminders(admin: ReturnType<typeof createAdminClient>) {
+  if (!configuredPush()) return 0;
+
+  const now = Date.now();
+  const { data } = await admin
+    .from("cc_event_reminders")
+    .select(
+      "id,minutes_before,user_id,event:cc_events!inner(id,title,starts_at,location,all_day,created_by,calendar_id,deleted_at)",
+    )
+    .eq("channel", "browser")
+    .gte("cc_events.starts_at", new Date(now - GRACE_MINUTES * 60_000).toISOString())
+    .lte("cc_events.starts_at", new Date(now + 31 * 86400_000).toISOString());
+
+  let pushed = 0;
+
+  for (const row of (data ?? []) as unknown as (DueRow & { user_id: string | null })[]) {
+    if ((row.event as { deleted_at?: string }).deleted_at) continue;
+
+    const fireAt = new Date(row.event.starts_at).getTime() - row.minutes_before * 60_000;
+    if (fireAt > now || now - fireAt > GRACE_MINUTES * 60_000) continue;
+
+    const dueAt = new Date(fireAt).toISOString();
+
+    // Whose reminder: one person's, or everyone the event reaches.
+    const recipients = new Set<string>();
+    if (row.user_id) {
+      recipients.add(row.user_id);
+    } else {
+      recipients.add(row.event.created_by);
+      const [{ data: shares }, { data: calendar }] = await Promise.all([
+        admin.from("cc_event_shares").select("user_id").eq("event_id", row.event.id),
+        admin.from("cc_calendars").select("group_id").eq("id", row.event.calendar_id).single(),
+      ]);
+      for (const s of shares ?? []) recipients.add(s.user_id as string);
+      if (calendar?.group_id) {
+        const { data: members } = await admin
+          .from("cc_group_members")
+          .select("user_id")
+          .eq("group_id", calendar.group_id);
+        for (const m of members ?? []) recipients.add(m.user_id as string);
+      }
+    }
+
+    for (const userId of recipients) {
+      // Already answered on some device: say nothing.
+      const { data: ack } = await admin
+        .from("cc_reminder_acks")
+        .select("reminder_id")
+        .eq("reminder_id", row.id)
+        .eq("user_id", userId)
+        .eq("due_at", dueAt)
+        .maybeSingle();
+      if (ack) continue;
+
+      // The delivery row is the lock.
+      const { error: claimError } = await admin
+        .from("cc_reminder_deliveries")
+        .insert({ reminder_id: row.id, user_id: userId, due_at: dueAt });
+      if (claimError) continue;
+
+      const { data: subscriptions } = await admin
+        .from("cc_push_subscriptions")
+        .select("endpoint,p256dh,auth")
+        .eq("user_id", userId);
+
+      const when = new Date(row.event.starts_at).toLocaleString("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        ...(row.event.all_day ? {} : { hour: "2-digit", minute: "2-digit" }),
+      });
+
+      for (const subscription of subscriptions ?? []) {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: subscription.endpoint,
+              keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+            },
+            JSON.stringify({
+              title: row.event.title,
+              body: `${describeMinutes(row.minutes_before)} · ${when}`,
+              tag: `reminder:${row.id}:${dueAt}`,
+              url: `/calendar?event=${row.event.id}`,
+            }),
+          );
+          pushed += 1;
+        } catch (e) {
+          const status = (e as { statusCode?: number }).statusCode;
+          if (status === 404 || status === 410) {
+            await admin
+              .from("cc_push_subscriptions")
+              .delete()
+              .eq("endpoint", subscription.endpoint);
+          }
+        }
+      }
+    }
+  }
+
+  return pushed;
+}
+
+function configuredPush() {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  if (!publicKey || !privateKey) return false;
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT ?? "mailto:no-reply@docmaker.studio",
+    publicKey,
+    privateKey,
+  );
+  return true;
+}
+
+/** "2 hours before" — the same words the app uses. */
+function describeMinutes(minutes: number) {
+  if (minutes === 0) return "Starting now";
+  if (minutes % (24 * 60) === 0) {
+    const days = minutes / (24 * 60);
+    return `${days} day${days === 1 ? "" : "s"} before`;
+  }
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hour${hours === 1 ? "" : "s"} before`;
+  }
+  return `${minutes} min before`;
 }
 
 /**

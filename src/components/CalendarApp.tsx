@@ -565,6 +565,43 @@ export function CalendarApp() {
     if (!rapid) queueMicrotask(() => setCanGoBack(true));
   }, [view, date]);
 
+  /**
+   * Arriving from a notification: ?event=<id> opens it once the calendar has
+   * loaded, then the parameter is dropped so a refresh does not reopen it.
+   */
+  const openedFromLink = useRef(false);
+  useEffect(() => {
+    if (openedFromLink.current || !store.ready) return;
+    const wanted = new URLSearchParams(window.location.search).get("event");
+    if (!wanted) return;
+
+    const event = store.visibleEvents.find((e) => e.id === wanted);
+    if (!event) return;
+
+    openedFromLink.current = true;
+    queueMicrotask(() => {
+      setDate(new Date(event.start));
+      editEvent(event);
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    params.delete("event");
+    window.history.replaceState(null, "", `?${params.toString()}`);
+  }, [store.ready, store.visibleEvents, editEvent]);
+
+  // A reminder card asking to open its event.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const event = store.visibleEvents.find((x) => x.id === id);
+      if (!event) return;
+      setDate(new Date(event.start));
+      editEvent(event);
+    };
+    window.addEventListener("cc:open-event", onOpen);
+    return () => window.removeEventListener("cc:open-event", onOpen);
+  }, [store.visibleEvents, editEvent]);
+
   // Following the browser's own back and forward.
   useEffect(() => {
     const onPop = () => {

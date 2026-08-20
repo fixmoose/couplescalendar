@@ -81,7 +81,7 @@ export async function POST(request: Request) {
             title: note.title,
             body: note.body ?? "",
             tag: note.id,
-            url: "/calendar",
+            url: note.event_id ? `/calendar?event=${note.event_id}` : "/calendar",
           }),
         );
         sent += 1;
