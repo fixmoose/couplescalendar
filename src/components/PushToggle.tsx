@@ -5,6 +5,7 @@ import { Bell, BellOff, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { disablePush, enablePush, pushEnabled, pushSupported } from "@/lib/push";
 import { useStore } from "@/lib/store";
+import { NotificationHelp } from "./NotificationHelp";
 
 const isEdge = () =>
   typeof navigator !== "undefined" && /\bEdg\//.test(navigator.userAgent);
@@ -40,6 +41,7 @@ export function PushToggle() {
   const [on, setOn] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     void pushEnabled().then(setOn);
@@ -56,6 +58,15 @@ export function PushToggle() {
   const toggle = async () => {
     setBusy(true);
     setNote(null);
+    setShowHelp(false);
+
+    // Some browsers never answer the prompt — they suppress it. Say so rather
+    // than leaving a spinner going.
+    const timeout = window.setTimeout(() => {
+      setBusy(false);
+      setNote("Your browser did not answer the request — it may be suppressing it.");
+      setShowHelp(true);
+    }, 12_000);
     if (on) {
       await disablePush(supabase);
       setOn(false);
@@ -65,6 +76,7 @@ export function PushToggle() {
         setOn(true);
       } else {
         setNote(advice(result.reason, "error" in result ? result.error : undefined));
+        setShowHelp(true);
         // Record it, so a browser that refuses quietly can still be diagnosed.
         void fetch("/api/log", {
           method: "POST",
@@ -78,6 +90,7 @@ export function PushToggle() {
         }).catch(() => {});
       }
     }
+    window.clearTimeout(timeout);
     setBusy(false);
   };
 
@@ -109,6 +122,18 @@ export function PushToggle() {
           : "Get a pop-up when somebody shares an event, even with the calendar closed."}
       </p>
       {note && <p className="mt-1 text-[12px] text-[#d1443c]">{note}</p>}
+
+      {!on && (
+        <button
+          type="button"
+          onClick={() => setShowHelp((v) => !v)}
+          className="mt-1.5 text-[12px] font-medium text-brand hover:underline"
+        >
+          {showHelp ? "Hide instructions" : "It is not working — what do I do?"}
+        </button>
+      )}
+
+      {showHelp && <NotificationHelp className="mt-2" />}
     </div>
   );
 }

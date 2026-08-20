@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   description:
     "A shared calendar for the people you plan life with — personal, group and per-event sharing.",
   applicationName: "CouplesCalendar",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Calendar",
+    statusBarStyle: "default",
+  },
   openGraph: {
     type: "website",
     siteName: "CouplesCalendar",

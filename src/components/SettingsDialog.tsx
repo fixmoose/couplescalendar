@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { Clock, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 import { useSettings, type Settings } from "@/lib/settings";
 import type { CalendarView } from "@/lib/types";
+import { InstallHint } from "./InstallHint";
 import { PushToggle } from "./PushToggle";
 import { Button, Field, Modal } from "./ui";
 
@@ -129,6 +130,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
         <Field label="Notifications on this device">
           <PushToggle />
+        </Field>
+
+        <Field label="On your phone">
+          <InstallHint />
         </Field>
 
         <p className="text-[12px] leading-relaxed text-ink-faint">
