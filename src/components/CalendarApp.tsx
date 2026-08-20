@@ -106,8 +106,10 @@ export function CalendarApp() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  /** Looking at one group's world rather than everything. */
-  const [focus, setFocus] = useState<string | null>(null);
+  /** Looking at one group's world, or one calendar, rather than everything. */
+  const [focus, setFocus] = useState<
+    { kind: "group" | "calendar"; id: string } | null
+  >(null);
   const isMobile = useIsMobile();
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
@@ -117,9 +119,11 @@ export function CalendarApp() {
   const events = useMemo(() => {
     // Focusing a group is a calendar within the calendar: same views, only
     // what that group is involved in.
-    const base = focus
-      ? store.eventsInGroup(focus).filter((e) => store.visibleEvents.includes(e))
-      : store.visibleEvents;
+    const base = !focus
+      ? store.visibleEvents
+      : focus.kind === "group"
+        ? store.eventsInGroup(focus.id).filter((e) => store.visibleEvents.includes(e))
+        : store.visibleEvents.filter((e) => e.calendarId === focus.id);
 
     const q = query.trim().toLowerCase();
     if (!q) return base;
@@ -698,8 +702,12 @@ export function CalendarApp() {
         onNewGroup={() => setDialog({ kind: "group" })}
         onEditGroup={(group) => setDialog({ kind: "group", group })}
         focus={focus}
-        onFocusGroup={(groupId) => {
-          setFocus((current) => (current === groupId ? null : groupId));
+        onFocus={(next) => {
+          setFocus((current) =>
+            current && next && current.kind === next.kind && current.id === next.id
+              ? null
+              : next,
+          );
           setMenuOpen(false);
         }}
         onInvite={() => setInviting(true)}
@@ -710,11 +718,7 @@ export function CalendarApp() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         {focus && (
-          <FocusBar
-            groupId={focus}
-            count={events.length}
-            onClear={() => setFocus(null)}
-          />
+          <FocusBar focus={focus} count={events.length} onClear={() => setFocus(null)} />
         )}
 
         <TopBar

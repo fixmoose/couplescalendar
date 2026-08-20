@@ -6,6 +6,7 @@ import {
   Check,
   Eye,
   EyeOff,
+  Home,
   Lock,
   Mail,
   Palette,
@@ -29,9 +30,13 @@ import { Avatar, Button } from "./ui";
 
 function CalendarRow({
   calendar,
+  focused,
+  onFocus,
   onMenu,
 }: {
   calendar: Calendar;
+  focused: boolean;
+  onFocus: () => void;
   onMenu: (e: React.MouseEvent, calendar: Calendar) => void;
 }) {
   const { toggleCalendar, groups } = useStore();
@@ -39,7 +44,10 @@ function CalendarRow({
 
   return (
     <div
-      className="group flex items-center gap-2.5 rounded-lg py-[5px] pr-1 pl-2 transition hover:bg-surface-2"
+      className={clsx(
+        "group flex items-center gap-2.5 rounded-lg py-[5px] pr-1 pl-2 transition",
+        focused ? "bg-brand-soft" : "hover:bg-surface-2",
+      )}
       onContextMenu={(e) => onMenu(e, calendar)}
     >
       <button
@@ -61,12 +69,20 @@ function CalendarRow({
 
       <button
         type="button"
-        onClick={() => toggleCalendar(calendar.id)}
+        onClick={onFocus}
         className={clsx(
           "min-w-0 flex-1 truncate text-left text-[13px] transition",
-          calendar.visible ? "text-ink" : "text-ink-faint",
+          focused
+            ? "font-medium text-brand"
+            : calendar.visible
+              ? "text-ink"
+              : "text-ink-faint",
         )}
-        title={group ? `${calendar.name} · ${group.name}` : calendar.name}
+        title={
+          focused
+            ? "Show everything again"
+            : `Show only ${calendar.name} — the tick beside it hides and shows it instead`
+        }
       >
         {calendar.name}
       </button>
@@ -221,7 +237,7 @@ export function Sidebar({
   onNewGroup,
   onEditGroup,
   focus,
-  onFocusGroup,
+  onFocus,
   onInvite,
   onOpenPerson,
   onSubscribe,
@@ -237,9 +253,9 @@ export function Sidebar({
   onEditCalendar: (calendar: Calendar) => void;
   onNewGroup: () => void;
   onEditGroup: (group: Group) => void;
-  /** Which group has the calendar to itself, if any. */
-  focus: string | null;
-  onFocusGroup: (groupId: string) => void;
+  /** What has the calendar to itself, if anything. */
+  focus: { kind: "group" | "calendar"; id: string } | null;
+  onFocus: (next: { kind: "group" | "calendar"; id: string } | null) => void;
   onInvite: () => void;
   onOpenPerson: (personId: string) => void;
   onSubscribe: () => void;
@@ -365,6 +381,23 @@ export function Sidebar({
       </div>
 
       <div className="cc-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <button
+          type="button"
+          onClick={() => onFocus(null)}
+          className={clsx(
+            "mb-2 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] transition",
+            focus
+              ? "text-ink-muted hover:bg-surface-2 hover:text-ink"
+              : "bg-surface-2 font-medium text-ink",
+          )}
+        >
+          <Home size={14} className="shrink-0 text-ink-faint" />
+          Everything
+          {focus && (
+            <span className="ml-auto text-[11px] text-brand">back to all</span>
+          )}
+        </button>
+
         <MiniMonth
           selected={selected}
           events={store.visibleEvents}
@@ -375,7 +408,13 @@ export function Sidebar({
           My calendars
         </SectionTitle>
         {personal.map((c) => (
-          <CalendarRow key={c.id} calendar={c} onMenu={calendarMenu} />
+          <CalendarRow
+            key={c.id}
+            calendar={c}
+            focused={focus?.kind === "calendar" && focus.id === c.id}
+            onFocus={() => onFocus({ kind: "calendar", id: c.id })}
+            onMenu={calendarMenu}
+          />
         ))}
 
         <SectionTitle
@@ -389,7 +428,13 @@ export function Sidebar({
           </p>
         )}
         {shared.map((c) => (
-          <CalendarRow key={c.id} calendar={c} onMenu={calendarMenu} />
+          <CalendarRow
+            key={c.id}
+            calendar={c}
+            focused={focus?.kind === "calendar" && focus.id === c.id}
+            onFocus={() => onFocus({ kind: "calendar", id: c.id })}
+            onMenu={calendarMenu}
+          />
         ))}
 
         <SectionTitle
@@ -493,7 +538,7 @@ export function Sidebar({
           </p>
         )}
         {store.groups.map((group) => {
-          const focused = focus === group.id;
+          const focused = focus?.kind === "group" && focus.id === group.id;
           return (
             <div
               key={group.id}
@@ -508,7 +553,7 @@ export function Sidebar({
               />
               <button
                 type="button"
-                onClick={() => onFocusGroup(group.id)}
+                onClick={() => onFocus({ kind: "group", id: group.id })}
                 title={
                   focused
                     ? "Show everything again"
