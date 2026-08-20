@@ -184,7 +184,11 @@ export function CalendarApp() {
     return [...ids].map((id) => store.personById(id)).filter((p) => p !== undefined);
   }, [store]);
 
-  /** Take a copy of someone else's event onto my own calendar. */
+  /**
+   * A shared event lives on the other person's calendar, so it never makes you
+   * look busy to your own groups and you cannot edit it. This puts your own
+   * copy beside it, which does both.
+   */
   const copyToMyCalendar = useCallback(
     (event: CalendarEvent) => {
       const target = store.myCalendars.find((c) => c.visible) ?? store.myCalendars[0];
@@ -198,7 +202,10 @@ export function CalendarApp() {
         end: new Date(event.end),
         allDay: event.allDay,
         sharedWith: [],
+        inviteEmails: [],
+        reminders: [...DEFAULT_REMINDERS],
       });
+      setNotice(`“${event.title}” is now on your calendar too — your groups will see you as busy.`);
     },
     [store],
   );
@@ -250,7 +257,7 @@ export function CalendarApp() {
           ? []
           : [
               {
-                label: "Copy to my calendar",
+                label: "Block this time on my calendar",
                 icon: <CopyPlus size={13} />,
                 onSelect: () => copyToMyCalendar(event),
               } as MenuItem,

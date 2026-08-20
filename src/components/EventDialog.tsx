@@ -390,7 +390,7 @@ function SharedEventView({
             Close
           </Button>
           <Button variant="primary" onClick={copyToMine}>
-            <CopyPlus size={15} /> Copy to my calendar
+            <CopyPlus size={15} /> Block this time on my calendar
           </Button>
         </>
       }
@@ -452,8 +452,12 @@ function SharedEventView({
               ` · ${store.personById(calendar.ownerId)?.name ?? "someone"}'s calendar`}
           </p>
         </Field>
-        <p className="text-[12px] text-ink-faint">
-          Only the owner can change this event. Copy it to keep your own version.
+        <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[12px] leading-relaxed text-ink-muted">
+          You can see this because {store.personById(event.createdBy)?.name ?? "someone"} shared
+          it, but it lives on their calendar: only they can change it, and it does
+          not make <strong className="font-medium text-ink">you</strong> look busy
+          to your own groups. Blocking the time puts your own copy alongside it —
+          yours to edit, and visible as busy to the people you share with.
         </p>
       </div>
     </Modal>
