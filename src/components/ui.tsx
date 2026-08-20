@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -253,6 +253,49 @@ export function Toast({
             <X size={13} />
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** "Deleted Dinner — Undo", the way a mail client offers it back. */
+export function UndoBar({
+  label,
+  onUndo,
+}: {
+  label: string;
+  onUndo: () => void;
+}) {
+  const [gone, setGone] = useState(false);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setGone(true), 12_000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  if (gone) return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+      <div className="cc-pop pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-ink px-4 py-2 text-[13px] text-[var(--surface)] shadow-[var(--shadow-md)]">
+        <span>{label}</span>
+        <button
+          type="button"
+          onClick={() => {
+            onUndo();
+            setGone(true);
+          }}
+          className="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold text-brand hover:bg-white/10"
+        >
+          <RotateCcw size={13} /> Undo
+        </button>
+        <button
+          type="button"
+          onClick={() => setGone(true)}
+          className="-mr-1.5 flex h-6 w-6 items-center justify-center rounded-full opacity-60 hover:bg-white/10 hover:opacity-100"
+        >
+          <X size={13} />
+        </button>
       </div>
     </div>
   );

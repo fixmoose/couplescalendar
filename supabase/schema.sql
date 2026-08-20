@@ -145,6 +145,8 @@ create table if not exists cc_events (
   created_by  uuid not null default auth.uid() references cc_profiles (id) on delete cascade,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
+  -- Deleting sets this rather than removing the row, so it can be restored.
+  deleted_at  timestamptz,
   constraint cc_events_time_order check (ends_at >= starts_at)
 );
 
@@ -663,6 +665,8 @@ alter table if exists cc_events
   add column if not exists feed_id uuid references cc_calendar_feeds (id) on delete cascade;
 alter table if exists cc_events
   add column if not exists external_uid text;
+alter table if exists cc_events
+  add column if not exists deleted_at timestamptz;
 
 create unique index if not exists cc_events_feed_uid_idx
   on cc_events (feed_id, external_uid)
@@ -1015,7 +1019,8 @@ select
 from cc_events e
 join cc_calendars c on c.id = e.calendar_id
 cross join lateral (select cc_event_access(e.id, auth.uid()) as level) acc
-where acc.level in ('full', 'busy');
+where acc.level in ('full', 'busy')
+  and e.deleted_at is null;
 
 grant select on cc_calendar_feed to authenticated;
 

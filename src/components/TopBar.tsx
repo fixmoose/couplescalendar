@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
 import { periodLabel } from "@/lib/date";
 import { useSettings } from "@/lib/settings";
 import { useTheme } from "@/lib/theme";
@@ -20,6 +20,9 @@ export function TopBar({
   onView,
   onOpenEvent,
   onSettings,
+  onTrash,
+  canGoBack,
+  onBack,
 }: {
   date: Date;
   view: CalendarView;
@@ -31,12 +34,25 @@ export function TopBar({
   onView: (view: CalendarView) => void;
   onOpenEvent: (event: CalendarEvent) => void;
   onSettings: () => void;
+  onTrash: () => void;
+  canGoBack: boolean;
+  onBack: () => void;
 }) {
   const { theme } = useTheme();
   const settings = useSettings();
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
+      <IconButton
+        onClick={onBack}
+        disabled={!canGoBack}
+        aria-label="Back to where I was"
+        title="Back to where I was"
+        className="disabled:opacity-30"
+      >
+        <ArrowLeft size={17} />
+      </IconButton>
+
       <Button variant="outline" onClick={onToday} className="px-3.5">
         Today
       </Button>
@@ -89,7 +105,7 @@ export function TopBar({
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </IconButton>
 
-        <AccountMenu onSettings={onSettings} />
+        <AccountMenu onSettings={onSettings} onTrash={onTrash} />
       </div>
     </header>
   );

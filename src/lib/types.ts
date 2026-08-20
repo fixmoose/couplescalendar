@@ -158,6 +158,17 @@ export interface Reminder {
   userId?: string;
 }
 
+/** A row in the bin: enough to recognise it and put it back. */
+export interface DeletedEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  calendarId: string;
+  deletedAt: string;
+}
+
 export type ListKind = "todo" | "shopping" | "packing";
 
 /** One line on an event's list: a thing to do, buy or pack. */

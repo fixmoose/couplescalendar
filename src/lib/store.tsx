@@ -18,6 +18,7 @@ import { deliverNow } from "./push";
 import { createClient, ensureSession } from "./supabase/client";
 import type {
   Attachment,
+  DeletedEvent,
   Calendar,
   CalendarEvent,
   ColorKey,
@@ -105,6 +106,12 @@ interface StoreValue extends Data {
   updateEvent: (draft: EventDraft & { id: string }) => void;
   rescheduleEvent: (id: string, start: Date, end: Date, allDay?: boolean) => void;
   deleteEvent: (id: string) => void;
+  restoreEvent: (id: string) => void;
+  purgeEvent: (id: string) => void;
+  loadDeleted: () => Promise<DeletedEvent[]>;
+  /** The last few reversible things you did, newest first. */
+  undoStack: { id: string; label: string }[];
+  undoLast: () => void;
   duplicateEvent: (id: string) => void;
   toggleEventShare: (eventId: string, personId: string) => void;
   moveEventToCalendar: (eventId: string, calendarId: string) => void;
@@ -192,6 +199,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const prefs = useRef<ViewPrefs>({ hiddenCalendars: [], busyHidden: [] });
+  /**
+   * Recently undoable actions, newest first. Kept in memory for this session;
+   * anything older lives in the bin, which survives a reload.
+   */
+  const undoRef = useRef<{ id: string; label: string; undo: () => Promise<void> }[]>([]);
+  const [undo, setUndo] = useState<{ id: string; label: string }[]>([]);
+
+  const pushUndo = useCallback(
+    (entry: { label: string; undo: () => Promise<void> }) => {
+      const item = { id: crypto.randomUUID(), ...entry };
+      undoRef.current = [item, ...undoRef.current].slice(0, 20);
+      setUndo(undoRef.current.map(({ id, label }) => ({ id, label })));
+    },
+    [],
+  );
 
   const load = useCallback(
     async (userId: string) => {
@@ -509,8 +531,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           },
         ),
 
-      rescheduleEvent: (id, start, end, allDay) =>
-        write(
+      rescheduleEvent: (id, start, end, allDay) => {
+        const before = d.events.find((e) => e.id === id);
+        if (before) {
+          pushUndo({
+            label: `Moved “${before.title}”`,
+            undo: async () => {
+              await db.patchEvent(supabase, id, {
+                starts_at: before.start,
+                ends_at: before.end,
+                all_day: before.allDay,
+              });
+              await refresh();
+            },
+          });
+        }
+        return write(
           mapEvents((e) =>
             e.id === id
               ? {
@@ -527,13 +563,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ends_at: end.toISOString(),
               ...(allDay === undefined ? {} : { all_day: allDay }),
             }),
-        ),
+        );
+      },
 
-      deleteEvent: (id) =>
+      deleteEvent: (id) => {
+        const event = d.events.find((e) => e.id === id);
         write(
           (s) => ({ ...s, events: s.events.filter((e) => e.id !== id) }),
-          () => db.deleteEvent(supabase, id),
+          async () => {
+            await db.deleteEvent(supabase, id);
+            pushUndo({
+              label: `Deleted “${event?.title ?? "event"}”`,
+              undo: async () => {
+                await db.restoreEvent(supabase, id);
+                await refresh();
+              },
+            });
+          },
+        );
+      },
+
+      restoreEvent: (id) =>
+        write(
+          (s) => s,
+          async () => {
+            await db.restoreEvent(supabase, id);
+            await refresh();
+          },
         ),
+
+      purgeEvent: (id) =>
+        write(
+          (s) => s,
+          async () => {
+            await db.purgeEvent(supabase, id);
+            await refresh();
+          },
+        ),
+
+      loadDeleted: () => db.loadDeleted(supabase),
+
+      undoStack: undo,
+
+      undoLast: () => {
+        const last = undoRef.current[0];
+        if (!last) return;
+        undoRef.current = undoRef.current.slice(1);
+        setUndo(undoRef.current.map(({ id, label }) => ({ id, label })));
+        void last.undo().catch((e) => setError(describe(e)));
+      },
 
       duplicateEvent: (id) =>
         write(
@@ -1015,7 +1093,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((s) => (s ? { ...s, busyHidden: [...hidden] } : s));
       },
     };
-  }, [data, error, refresh, savePrefs, supabase, user, write]);
+  }, [data, error, pushUndo, refresh, savePrefs, supabase, undo, user, write]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

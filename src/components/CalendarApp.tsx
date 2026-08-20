@@ -25,7 +25,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { colorVar, COLOR_KEYS, COLORS } from "@/lib/colors";
 import { timeLabel, weekDays } from "@/lib/date";
 import { uploadAttachment } from "@/lib/db";
@@ -51,12 +51,13 @@ import { NotificationPopout } from "./NotificationPopout";
 import { PersonPanel } from "./PersonPanel";
 import { ReminderWatcher } from "./ReminderWatcher";
 import { SettingsDialog } from "./SettingsDialog";
+import { TrashDialog } from "./TrashDialog";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { MonthView } from "./MonthView";
 import { Sidebar } from "./Sidebar";
 import { TimeGridView } from "./TimeGridView";
 import { TopBar } from "./TopBar";
-import { Avatar, Toast } from "./ui";
+import { Avatar, Toast, UndoBar } from "./ui";
 import type { ViewHandlers } from "./view-types";
 
 type Dialog =
@@ -97,6 +98,9 @@ export function CalendarApp() {
   const [inviting, setInviting] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  /** Whether we have been anywhere else, so Back can be offered honestly. */
+  const [canGoBack, setCanGoBack] = useState(false);
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
     null,
@@ -538,17 +542,49 @@ export function CalendarApp() {
     [view],
   );
 
+  /**
+   * Every move writes a history entry, so the browser's Back button — and the
+   * one in the top bar — return you to where you were looking. Rapid moves
+   * (holding the arrow) collapse into one entry rather than filling history.
+   */
+  const lastNavigation = useRef(0);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     params.set("view", view);
     params.set("date", formatISO(date, { representation: "date" }));
-    window.history.replaceState(null, "", `?${params.toString()}`);
+    const url = `?${params.toString()}`;
+    if (url === `?${new URLSearchParams(window.location.search).toString()}`) return;
+
+    const now = Date.now();
+    const rapid = now - lastNavigation.current < 700;
+    lastNavigation.current = now;
+    window.history[rapid ? "replaceState" : "pushState"](null, "", url);
+    if (!rapid) queueMicrotask(() => setCanGoBack(true));
   }, [view, date]);
+
+  // Following the browser's own back and forward.
+  useEffect(() => {
+    const onPop = () => {
+      const next = readUrl();
+      if (next.view) setView(next.view);
+      setDate(next.date);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // Keyboard shortcuts, Google-Calendar style.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
+      // Cmd/Ctrl+Z is undo; other modified keys are the browser's business.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        if (!dialog && store.undoStack.length) {
+          e.preventDefault();
+          store.undoLast();
+        }
+        return;
+      }
       if (
         dialog ||
         e.metaKey ||
@@ -567,6 +603,7 @@ export function CalendarApp() {
       else if (key === "n" || key === "c") newEventHere();
       else if (key === "arrowleft" || key === "k") step(-1);
       else if (key === "arrowright" || key === "j") step(1);
+      else if (key === "z" && store.undoStack.length) store.undoLast();
       else if (key === "escape") {
         setSelectedId(null);
         setSlot(null);
@@ -576,7 +613,7 @@ export function CalendarApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dialog, newEventHere, setDate, step]);
+  }, [dialog, newEventHere, setDate, step, store]);
 
   if (!store.ready) {
     return (
@@ -617,6 +654,9 @@ export function CalendarApp() {
             editEvent(event);
           }}
           onSettings={() => setSettingsOpen(true)}
+          onTrash={() => setTrashOpen(true)}
+          canGoBack={canGoBack}
+          onBack={() => window.history.back()}
         />
 
         {view === "month" && (
@@ -664,6 +704,16 @@ export function CalendarApp() {
       {subscribing && <SubscribeDialog onClose={() => setSubscribing(false)} />}
 
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+
+      {trashOpen && <TrashDialog onClose={() => setTrashOpen(false)} />}
+
+      {store.undoStack.length > 0 && !store.error && (
+        <UndoBar
+          label={store.undoStack[0].label}
+          onUndo={store.undoLast}
+          key={store.undoStack[0].id}
+        />
+      )}
 
       <Toast
         message={

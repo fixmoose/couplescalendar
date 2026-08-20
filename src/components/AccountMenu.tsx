@@ -1,13 +1,19 @@
 "use client";
 
-import { LogOut, RefreshCw, Settings } from "lucide-react";
+import { LogOut, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { ContextMenu, type MenuState } from "./ContextMenu";
 import { Avatar } from "./ui";
 
 /** The signed-in user, with a refresh and a way out. */
-export function AccountMenu({ onSettings }: { onSettings: () => void }) {
+export function AccountMenu({
+  onSettings,
+  onTrash,
+}: {
+  onSettings: () => void;
+  onTrash: () => void;
+}) {
   const store = useStore();
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -22,6 +28,11 @@ export function AccountMenu({ onSettings }: { onSettings: () => void }) {
           label: "Settings",
           icon: <Settings size={13} />,
           onSelect: onSettings,
+        },
+        {
+          label: "Recently deleted",
+          icon: <Trash2 size={13} />,
+          onSelect: onTrash,
         },
         {
           label: "Reload the calendar",

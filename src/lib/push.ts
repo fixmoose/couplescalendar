@@ -36,26 +36,74 @@ export async function registerWorker() {
   }
 }
 
-/** Asks permission if needed, subscribes, and records it against the account. */
+export type PushFailure =
+  | "unsupported"
+  | "no-key"
+  | "denied"
+  | "dismissed"
+  | "worker-failed"
+  | "subscribe-failed"
+  | "save-failed";
+
+/**
+ * Asks permission if needed, subscribes, and records it against the account.
+ *
+ * Each step reports separately, because they fail for different reasons and
+ * need different advice — Edge in particular can refuse permission without
+ * ever showing a prompt, which is indistinguishable from a decline unless the
+ * steps are told apart.
+ */
 export async function enablePush(supabase: SupabaseClient) {
-  if (!pushSupported()) return { ok: false, reason: "unsupported" as const };
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+    return { ok: false as const, reason: "unsupported" as PushFailure };
+  }
+  if (!("PushManager" in window)) {
+    return { ok: false as const, reason: "unsupported" as PushFailure };
+  }
+  if (!VAPID_PUBLIC_KEY) {
+    return { ok: false as const, reason: "no-key" as PushFailure };
+  }
 
-  const permission =
-    Notification.permission === "granted"
-      ? "granted"
-      : await Notification.requestPermission();
-  if (permission !== "granted") return { ok: false, reason: "denied" as const };
+  const before = Notification.permission;
+  const permission = before === "granted" ? "granted" : await Notification.requestPermission();
 
-  const registration = (await registerWorker()) ?? (await navigator.serviceWorker.ready);
-  if (!registration) return { ok: false, reason: "unsupported" as const };
+  if (permission !== "granted") {
+    // "default" after asking means the request was never really shown —
+    // Edge's quiet notification blocking does this.
+    return {
+      ok: false as const,
+      reason: (permission === "default" ? "dismissed" : "denied") as PushFailure,
+    };
+  }
 
-  const existing = await registration.pushManager.getSubscription();
-  const subscription =
-    existing ??
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY!),
-    }));
+  let registration: ServiceWorkerRegistration | null = null;
+  try {
+    registration = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+  } catch (e) {
+    return {
+      ok: false as const,
+      reason: "worker-failed" as PushFailure,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  let subscription: PushSubscription;
+  try {
+    const existing = await registration.pushManager.getSubscription();
+    subscription =
+      existing ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      }));
+  } catch (e) {
+    return {
+      ok: false as const,
+      reason: "subscribe-failed" as PushFailure,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
 
   const json = subscription.toJSON();
   const { error } = await supabase.from("cc_push_subscriptions").upsert(
@@ -69,7 +117,9 @@ export async function enablePush(supabase: SupabaseClient) {
     { onConflict: "endpoint" },
   );
 
-  if (error) return { ok: false, reason: "save-failed" as const, error: error.message };
+  if (error) {
+    return { ok: false as const, reason: "save-failed" as PushFailure, error: error.message };
+  }
   return { ok: true as const };
 }
 

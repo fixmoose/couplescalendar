@@ -16,6 +16,7 @@ import type {
   Importance,
   Invite,
   ListKind,
+  DeletedEvent,
   Person,
   Privacy,
   Reminder,
@@ -603,9 +604,55 @@ export async function patchEvent(
   if (error) throw error;
 }
 
+/** Deleting keeps the row so it can come back; see restoreEvent. */
 export async function deleteEvent(supabase: Client, id: string) {
+  const { error } = await supabase
+    .from("cc_events")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function restoreEvent(supabase: Client, id: string) {
+  const { error } = await supabase
+    .from("cc_events")
+    .update({ deleted_at: null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function purgeEvent(supabase: Client, id: string) {
   const { error } = await supabase.from("cc_events").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** What is in the bin: deleted events this person can still write. */
+export async function loadDeleted(supabase: Client): Promise<DeletedEvent[]> {
+  const { data, error } = await supabase
+    .from("cc_events")
+    .select("id,title,starts_at,ends_at,all_day,calendar_id,deleted_at")
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+
+  return ((data ?? []) as {
+    id: string;
+    title: string;
+    starts_at: string;
+    ends_at: string;
+    all_day: boolean;
+    calendar_id: string;
+    deleted_at: string;
+  }[]).map((row) => ({
+    id: row.id,
+    title: row.title,
+    start: row.starts_at,
+    end: row.ends_at,
+    allDay: row.all_day,
+    calendarId: row.calendar_id,
+    deletedAt: row.deleted_at,
+  }));
 }
 
 export async function duplicateEvent(supabase: Client, id: string, userId: string) {

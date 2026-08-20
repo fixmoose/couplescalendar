@@ -6,6 +6,34 @@ import { useEffect, useState } from "react";
 import { disablePush, enablePush, pushEnabled, pushSupported } from "@/lib/push";
 import { useStore } from "@/lib/store";
 
+const isEdge = () =>
+  typeof navigator !== "undefined" && /\bEdg\//.test(navigator.userAgent);
+
+/** What to actually do about it, per browser. */
+function advice(reason: string, detail?: string) {
+  if (reason === "no-key") {
+    return "Push is not configured on the server yet (VAPID keys missing).";
+  }
+  if (reason === "dismissed" || reason === "denied") {
+    if (isEdge()) {
+      return reason === "dismissed"
+        ? "Edge blocked the request before it appeared. Open edge://settings/content/notifications, make sure notifications are allowed and this site is not in the block list, then try again."
+        : "Edge is blocking notifications for this site. Click the lock icon in the address bar → Permissions for this site → Notifications → Allow. Also check Windows Settings → System → Notifications that Edge is allowed.";
+    }
+    return "Your browser is blocking notifications for this site — click the lock icon in the address bar and allow them.";
+  }
+  if (reason === "worker-failed") {
+    return `The service worker could not start${detail ? `: ${detail}` : "."}`;
+  }
+  if (reason === "subscribe-failed") {
+    return isEdge()
+      ? `Edge refused the subscription${detail ? `: ${detail}` : ""}. This is usually Windows notifications being off for Edge — Windows Settings → System → Notifications.`
+      : `Could not subscribe${detail ? `: ${detail}` : "."}`;
+  }
+  if (reason === "save-failed") return "Subscribed, but the device could not be saved.";
+  return "This browser cannot receive push notifications.";
+}
+
 /** Turns browser push on for this device — the part that survives a closed tab. */
 export function PushToggle() {
   const { supabase } = useStore();
@@ -33,13 +61,22 @@ export function PushToggle() {
       setOn(false);
     } else {
       const result = await enablePush(supabase);
-      if (result.ok) setOn(true);
-      else
-        setNote(
-          result.reason === "denied"
-            ? "Your browser is blocking notifications for this site — allow them in the address bar."
-            : "Could not turn them on.",
-        );
+      if (result.ok) {
+        setOn(true);
+      } else {
+        setNote(advice(result.reason, "error" in result ? result.error : undefined));
+        // Record it, so a browser that refuses quietly can still be diagnosed.
+        void fetch("/api/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            operation: "push-enable",
+            code: result.reason,
+            message: "error" in result ? result.error : "",
+            detail: navigator.userAgent.slice(0, 160),
+          }),
+        }).catch(() => {});
+      }
     }
     setBusy(false);
   };
