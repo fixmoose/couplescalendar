@@ -1155,7 +1155,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 : n,
             ),
           }),
-          () => db.pinNoteToEvent(supabase, noteId, eventId),
+          async () => {
+            await db.pinNoteToEvent(supabase, noteId, eventId);
+            // The trigger writes the notifications; this delivers them now
+            // rather than whenever the cron next runs.
+            await pushFreshShares(supabase, eventId);
+          },
         ),
 
       unpinNoteFrom: (noteId, eventId) =>

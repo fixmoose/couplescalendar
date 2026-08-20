@@ -19,8 +19,8 @@ import { useEventColor } from "./EventPill";
  * asked for reduced motion.
  */
 
-/** How far ahead is still "up next". */
-const HORIZON_DAYS = 7;
+/** Prefer the next fortnight, but never show nothing just because it is quiet. */
+const PREFERRED_DAYS = 14;
 const MAX_ITEMS = 10;
 
 function whenLabel(event: CalendarEvent) {
@@ -82,15 +82,16 @@ export function UpNextTicker() {
   }, []);
 
   const upcoming = useMemo(() => {
-    const until = now + HORIZON_DAYS * 86400_000;
-    return store.visibleEvents
-      .filter((e) => {
-        const end = new Date(e.end).getTime();
-        const start = new Date(e.start).getTime();
-        return end >= now && start <= until;
-      })
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-      .slice(0, MAX_ITEMS);
+    const ahead = store.visibleEvents
+      .filter((e) => new Date(e.end).getTime() >= now)
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+    const soon = ahead.filter(
+      (e) => new Date(e.start).getTime() <= now + PREFERRED_DAYS * 86400_000,
+    );
+
+    // A quiet fortnight still deserves a ticker: fall back to whatever is next.
+    return (soon.length ? soon : ahead).slice(0, MAX_ITEMS);
   }, [store.visibleEvents, now]);
 
   if (!now || upcoming.length === 0) return null;
@@ -99,17 +100,17 @@ export function UpNextTicker() {
   const seconds = Math.max(18, upcoming.length * 6);
 
   return (
-    <div className="relative hidden min-w-0 flex-1 overflow-hidden lg:block">
+    <div className="relative hidden min-w-0 flex-1 overflow-hidden md:block">
       {/* Fade the ends so items arrive and leave rather than being cut off. */}
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-[var(--surface)] to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-[var(--surface)] to-transparent" />
 
       <div
-        className="cc-marquee flex w-max gap-1"
+        className="cc-marquee flex w-max"
         style={{ animationDuration: `${seconds}s` }}
       >
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex shrink-0 gap-1" aria-hidden={copy === 1}>
+          <div key={copy} className="flex shrink-0 gap-1 pr-1" aria-hidden={copy === 1}>
             {upcoming.map((event) => (
               <Item key={`${copy}-${event.id}`} event={event} />
             ))}

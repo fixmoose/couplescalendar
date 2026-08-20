@@ -8,10 +8,11 @@ import type { CSSProperties } from "react";
  * urgent. Each tone drives a rail, a tinted icon and a label — never the whole
  * card, which would make three of them shout at once.
  */
-export type Tone = "share" | "invite" | "update" | "cancel" | "reminder" | "urgent";
+export type Tone = "share" | "note" | "invite" | "update" | "cancel" | "reminder" | "urgent";
 
 const HUES: Record<Tone, { hex: string; label: string }> = {
   share: { hex: "#2f7ce0", label: "Shared with you" },
+  note: { hex: "#0d9488", label: "Note pinned" },
   invite: { hex: "#7c5cf0", label: "Invitation" },
   update: { hex: "#c8930b", label: "Changed" },
   cancel: { hex: "#d1443c", label: "Cancelled" },
@@ -27,6 +28,7 @@ export const toneVar = (tone: Tone): CSSProperties =>
 
 /** Maps a stored notification kind onto a tone. */
 export function toneForKind(kind: string): Tone {
+  if (kind === "note") return "note";
   if (kind === "invite") return "invite";
   if (kind === "update") return "update";
   if (kind === "cancel") return "cancel";

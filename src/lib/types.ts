@@ -212,7 +212,7 @@ export interface EventSubscription {
 /** A message waiting in the bell menu. */
 export interface AppNotification {
   id: string;
-  kind: "share" | "update" | "cancel" | "invite";
+  kind: "share" | "update" | "cancel" | "invite" | "note";
   title: string;
   body?: string;
   eventId?: string;
