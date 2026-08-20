@@ -268,6 +268,35 @@ as $$
   where e.id = p_event;
 $$;
 
+create or replace function cc_is_shared_with(p_event uuid, p_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from cc_event_shares s
+    where s.event_id = p_event and s.user_id = p_user
+  );
+$$;
+
+-- Two people are connected when they sit in at least one group together.
+create or replace function cc_users_share_group(p_a uuid, p_b uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from cc_group_members mine
+    join cc_group_members theirs on theirs.group_id = mine.group_id
+    where mine.user_id = p_a and theirs.user_id = p_b
+  );
+$$;
+
 -- Shared calendars are read/write for the whole group; personal ones only for
 -- their owner. Tighten later if we add read-only members.
 create or replace function cc_can_write_calendar(p_calendar uuid, p_user uuid)
@@ -537,36 +566,26 @@ create policy cc_visibility_all on cc_calendar_visibility for all
 -- Reading an event: decided from the row's own columns, never by looking the
 -- row up again. A STABLE function that selects from cc_events cannot see a row
 -- that is still being inserted, which refuses INSERT ... RETURNING.
+-- Reading an event: from the row's own columns, and through functions that
+-- run as the owner. A policy that queries another table whose policy queries
+-- this one recurses; a security definer function is not filtered, so it stops.
 drop policy if exists cc_events_read on cc_events;
 create policy cc_events_read on cc_events for select using (
-  -- Full access only. Busy blocks are served by cc_calendar_feed, never from
-  -- this table, so nothing here may match an event you may only see as busy.
+  -- Full access only. Busy blocks come from cc_calendar_feed, never from here.
   exists (
     select 1
     from cc_calendars c
     where c.id = cc_events.calendar_id
       and (
-        -- your own calendar
         c.owner_id = auth.uid()
-        -- a calendar your group shares
         or (c.kind = 'shared' and cc_is_group_member(c.group_id, auth.uid()))
-        -- somebody who publishes details to the groups you share with them
         or (
           coalesce(cc_events.privacy, c.privacy) = 'details'
-          and exists (
-            select 1
-            from cc_group_members mine
-            join cc_group_members theirs on theirs.group_id = mine.group_id
-            where mine.user_id = auth.uid() and theirs.user_id = c.owner_id
-          )
+          and cc_users_share_group(auth.uid(), c.owner_id)
         )
       )
   )
-  -- or it was shared with you directly
-  or exists (
-    select 1 from cc_event_shares s
-    where s.event_id = cc_events.id and s.user_id = auth.uid()
-  )
+  or cc_is_shared_with(cc_events.id, auth.uid())
 );
 
 drop policy if exists cc_events_insert on cc_events;
