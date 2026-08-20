@@ -220,6 +220,8 @@ export function Sidebar({
   onEditCalendar,
   onNewGroup,
   onEditGroup,
+  focus,
+  onFocusGroup,
   onInvite,
   onOpenPerson,
   onSubscribe,
@@ -235,6 +237,9 @@ export function Sidebar({
   onEditCalendar: (calendar: Calendar) => void;
   onNewGroup: () => void;
   onEditGroup: (group: Group) => void;
+  /** Which group has the calendar to itself, if any. */
+  focus: string | null;
+  onFocusGroup: (groupId: string) => void;
   onInvite: () => void;
   onOpenPerson: (personId: string) => void;
   onSubscribe: () => void;
@@ -482,24 +487,58 @@ export function Sidebar({
             of them at once.
           </p>
         )}
-        {store.groups.map((group) => (
-          <button
-            key={group.id}
-            type="button"
-            onClick={() => onEditGroup(group)}
-            className="flex w-full items-center gap-2.5 rounded-lg py-[6px] pr-2 pl-2 text-left transition hover:bg-surface-2"
-          >
-            <Users size={14} className="shrink-0 text-ink-faint" />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
-              {group.name}
-            </span>
-            <span className="flex -space-x-1.5">
-              {group.memberIds.slice(0, 4).map((id) => (
-                <MemberAvatar key={id} id={id} />
-              ))}
-            </span>
-          </button>
-        ))}
+        {store.groups.length > 0 && (
+          <p className="px-2 pb-1 text-[11px] leading-relaxed text-ink-faint">
+            Click a group to see only what it is involved in.
+          </p>
+        )}
+        {store.groups.map((group) => {
+          const focused = focus === group.id;
+          return (
+            <div
+              key={group.id}
+              className={clsx(
+                "group flex items-center gap-2.5 rounded-lg py-[6px] pr-1 pl-2 transition",
+                focused ? "bg-brand-soft" : "hover:bg-surface-2",
+              )}
+            >
+              <Users
+                size={14}
+                className={clsx("shrink-0", focused ? "text-brand" : "text-ink-faint")}
+              />
+              <button
+                type="button"
+                onClick={() => onFocusGroup(group.id)}
+                title={
+                  focused
+                    ? "Show everything again"
+                    : `Show only what ${group.name} is involved in`
+                }
+                className={clsx(
+                  "min-w-0 flex-1 truncate text-left text-[13px]",
+                  focused ? "font-medium text-brand" : "text-ink",
+                )}
+              >
+                {group.name}
+              </button>
+
+              <span className="flex -space-x-1.5">
+                {group.memberIds.slice(0, 4).map((id) => (
+                  <MemberAvatar key={id} id={id} />
+                ))}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => onEditGroup(group)}
+                aria-label={`${group.name} settings`}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition group-hover:opacity-100 hover:bg-surface hover:text-ink"
+              >
+                <Settings2 size={13} />
+              </button>
+            </div>
+          );
+        })}
         </div>
       </aside>
     </>

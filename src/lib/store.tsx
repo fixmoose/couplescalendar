@@ -104,6 +104,12 @@ interface StoreValue extends Data {
   /** How many items have travelled each way with one person. */
   trafficWith: (personId: string) => { from: number; to: number };
   itemsWith: (personId: string) => { fromThem: CalendarEvent[]; toThem: CalendarEvent[] };
+  /**
+   * Everything a group is involved in: what sits on its own calendars, and
+   * anything shared with or by its members. A group is people, so "the group's
+   * events" has to mean more than one calendar.
+   */
+  eventsInGroup: (groupId: string) => CalendarEvent[];
   createEvent: (draft: EventDraft) => void;
   updateEvent: (draft: EventDraft & { id: string }) => void;
   rescheduleEvent: (id: string, start: Date, end: Date, allDay?: boolean) => void;
@@ -508,6 +514,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           (e) => !e.masked && e.createdBy === userId && reaches(e, personId),
         ).length,
       }),
+
+      eventsInGroup: (groupId) => {
+        const group = d.groups.find((g) => g.id === groupId);
+        if (!group) return [];
+        const members = new Set(group.memberIds);
+        const groupCalendars = new Set(
+          d.calendars.filter((c) => c.groupId === groupId).map((c) => c.id),
+        );
+
+        return d.events.filter((event) => {
+          if (groupCalendars.has(event.calendarId)) return true;
+          if (event.masked) return members.has(event.createdBy);
+          // Anything passing between these people, wherever it lives.
+          return (
+            members.has(event.createdBy) ||
+            event.sharedWith.some((id) => members.has(id))
+          );
+        });
+      },
 
       itemsWith: (personId) => ({
         fromThem: d.events.filter((e) => !e.masked && e.createdBy === personId),

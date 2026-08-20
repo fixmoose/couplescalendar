@@ -46,6 +46,7 @@ import { CalendarDialog } from "./CalendarDialog";
 import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
 import { DayPanel } from "./DayPanel";
 import { EventDialog } from "./EventDialog";
+import { FocusBar } from "./FocusBar";
 import { GroupDialog } from "./GroupDialog";
 import { InviteDialog } from "./InviteDialog";
 import { NotesPanel } from "./NotesView";
@@ -105,6 +106,8 @@ export function CalendarApp() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  /** Looking at one group's world rather than everything. */
+  const [focus, setFocus] = useState<string | null>(null);
   const isMobile = useIsMobile();
   /** The slot a plain left click picked — what "New event" then uses. */
   const [slot, setSlot] = useState<{ start: string; end: string; allDay: boolean } | null>(
@@ -112,14 +115,20 @@ export function CalendarApp() {
   );
 
   const events = useMemo(() => {
+    // Focusing a group is a calendar within the calendar: same views, only
+    // what that group is involved in.
+    const base = focus
+      ? store.eventsInGroup(focus).filter((e) => store.visibleEvents.includes(e))
+      : store.visibleEvents;
+
     const q = query.trim().toLowerCase();
-    if (!q) return store.visibleEvents;
-    return store.visibleEvents.filter((e) =>
+    if (!q) return base;
+    return base.filter((e) =>
       [e.title, e.location, e.notes].some((field) =>
         field?.toLowerCase().includes(q),
       ),
     );
-  }, [store.visibleEvents, query]);
+  }, [store, focus, query]);
 
   const defaultCalendarId =
     store.myCalendars.find((c) => c.visible)?.id ??
@@ -688,6 +697,11 @@ export function CalendarApp() {
         onEditCalendar={(calendar) => setDialog({ kind: "calendar", calendar })}
         onNewGroup={() => setDialog({ kind: "group" })}
         onEditGroup={(group) => setDialog({ kind: "group", group })}
+        focus={focus}
+        onFocusGroup={(groupId) => {
+          setFocus((current) => (current === groupId ? null : groupId));
+          setMenuOpen(false);
+        }}
         onInvite={() => setInviting(true)}
         onSubscribe={() => setSubscribing(true)}
         onOpenPerson={setPerson}
@@ -695,6 +709,14 @@ export function CalendarApp() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
+        {focus && (
+          <FocusBar
+            groupId={focus}
+            count={events.length}
+            onClear={() => setFocus(null)}
+          />
+        )}
+
         <TopBar
           date={date}
           view={view}
