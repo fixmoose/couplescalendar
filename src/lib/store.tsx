@@ -1341,10 +1341,16 @@ function describe(e: unknown, note?: string) {
   const code = error.code ? ` [${error.code}]` : "";
   const detail = [error.details, error.hint].filter(Boolean).join(" · ");
 
+  // 42703 is a column, 42P01 / PGRST205 a table. Saying "run schema.sql" for a
+  // column the app should not have asked for sends somebody to the wrong place.
+  if (error.code === "42703") {
+    return `The app asked for something the database does not have${code}: ${message}`;
+  }
   if (
-    message.includes("does not exist") ||
     message.includes("schema cache") ||
-    message.includes("Could not find the table")
+    message.includes("Could not find the table") ||
+    error.code === "42P01" ||
+    error.code === "PGRST205"
   ) {
     return `Database tables are missing — run supabase/schema.sql in the Supabase SQL editor.${code} ${message}`;
   }

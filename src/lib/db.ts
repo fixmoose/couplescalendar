@@ -347,7 +347,6 @@ export async function setSubscription(
 interface NoteRow {
   id: string;
   group_id: string | null;
-  event_id: string | null;
   body: string;
   color: string;
   pinned: boolean;
@@ -538,7 +537,7 @@ export async function loadWorkspace(
         .limit(50),
       supabase
         .from("cc_notes")
-        .select("id,group_id,event_id,body,color,pinned,created_by,created_at,updated_at")
+        .select("id,group_id,body,color,pinned,created_by,created_at,updated_at")
         .order("created_at", { ascending: false })
         .limit(300),
       supabase.from("cc_note_events").select("note_id,event_id"),
