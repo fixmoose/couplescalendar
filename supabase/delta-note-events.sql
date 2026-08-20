@@ -43,12 +43,26 @@ create policy cc_note_events_all on cc_note_events for all
     and cc_event_access(event_id, auth.uid()) = 'full'
   );
 
--- Carry across anything pinned while a note could hold only one event.
-insert into cc_note_events (note_id, event_id, pinned_by)
-select n.id, n.event_id, n.created_by
-from cc_notes n
-where n.event_id is not null
-on conflict do nothing;
+-- Carry across anything pinned while a note could hold only one event. That
+-- column only exists if the earlier single-event delta was ever run, so this
+-- checks before reaching for it.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cc_notes'
+      and column_name = 'event_id'
+  ) then
+    execute $migrate$
+      insert into cc_note_events (note_id, event_id, pinned_by)
+      select n.id, n.event_id, n.created_by
+      from cc_notes n
+      where n.event_id is not null
+      on conflict do nothing
+    $migrate$;
+  end if;
+end $$;
 
 do $$
 begin
