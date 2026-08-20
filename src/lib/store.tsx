@@ -14,6 +14,7 @@ import {
 import { canEdit, participantIds } from "./access";
 import * as db from "./db";
 import { inviteToEvent } from "./invites";
+import { usePresence, type Presence } from "./presence";
 import { deliverNow } from "./push";
 import { createClient, ensureSession } from "./supabase/client";
 import type {
@@ -178,6 +179,9 @@ interface StoreValue extends Data {
   createInvites: (emails: string[], groupId?: string) => Promise<Invite[]>;
   updateInvite: (id: string, patch: Partial<Invite>) => void;
   cancelInvite: (id: string) => void;
+  /** Who is looking at their calendar right now. */
+  presenceOf: (personId: string) => Presence | undefined;
+  myPresence: Presence;
   /** Exposed so attachment previews can mint signed URLs. */
   supabase: SupabaseClient;
 }
@@ -193,6 +197,7 @@ const EMPTY: Data = {
   feeds: [],
   notifications: [],
   acknowledged: [],
+  missing: [],
   busyHidden: [],
 };
 
@@ -228,6 +233,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         new Set(prefs.current.hiddenCalendars),
       );
       setData({ ...workspace, busyHidden: prefs.current.busyHidden });
+
+      // Everything still works; the features behind these tables simply sit
+      // idle until the schema catches up.
+      if (workspace.missing.length) {
+        setError(
+          `Waiting on a database update — run ${deltaFor(workspace.missing)} in the Supabase SQL editor. Missing: ${workspace.missing.join(", ")}.`,
+        );
+      }
     },
     [supabase],
   );
@@ -351,6 +364,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const presence = usePresence(supabase, user?.id);
+
   const value = useMemo<StoreValue>(() => {
     const d = data ?? EMPTY;
     const userId = user?.id ?? "";
@@ -423,6 +438,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return {
       ...d,
       supabase,
+      presenceOf: (personId) => presence.people[personId],
+      myPresence: presence.mine,
       currentUserId: userId,
       me,
       ready: data !== null,
@@ -1110,7 +1127,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((s) => (s ? { ...s, busyHidden: [...hidden] } : s));
       },
     };
-  }, [data, error, pushUndo, refresh, savePrefs, supabase, undo, user, write]);
+  }, [data, error, presence, pushUndo, refresh, savePrefs, supabase, undo, user, write]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
@@ -1179,6 +1196,21 @@ async function sessionNote(supabase: SupabaseClient) {
     return "Your session has expired — reload the page.";
   }
   return `signed in as ${session.user.email ?? session.user.id.slice(0, 8)}`;
+}
+
+/** Which delta to paste, given which tables are missing. */
+function deltaFor(missing: string[]) {
+  const files = new Set<string>();
+  for (const table of missing) {
+    if (table === "cc_reminder_acks") files.add("supabase/delta-reminder-acks.sql");
+    else if (table === "cc_event_items") files.add("supabase/delta-lists.sql");
+    else if (table === "cc_event_subscriptions") files.add("supabase/delta-realtime-notify.sql");
+    else if (table === "cc_notifications") files.add("supabase/delta-reminders-v2.sql");
+    else if (table === "cc_event_reminders") files.add("supabase/delta-reminders.sql");
+    else if (table === "cc_calendar_feeds") files.add("supabase/delta-calendar-sync.sql");
+    else files.add("supabase/schema.sql");
+  }
+  return [...files].join(" and ");
 }
 
 /**

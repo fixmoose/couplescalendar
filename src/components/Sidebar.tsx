@@ -135,6 +135,7 @@ function PersonRow({
       <Avatar
         person={person}
         size={18}
+        status={store.presenceOf(personId)}
         className={clsx("transition", !busyShown && "opacity-40 grayscale")}
       />
       <button

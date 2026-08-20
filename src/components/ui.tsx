@@ -25,11 +25,30 @@ export function Avatar({
   person,
   size = 22,
   className,
+  status,
 }: {
   person: Person;
   size?: number;
   className?: string;
+  /** Green while they are using the calendar, amber when they have wandered off. */
+  status?: "active" | "away";
 }) {
+  if (status) {
+    return (
+      <span className="relative inline-flex shrink-0">
+        <Avatar person={person} size={size} className={className} />
+        <span
+          title={status === "active" ? `${person.name} is in the calendar` : `${person.name} is away`}
+          style={{ width: Math.max(7, size * 0.3), height: Math.max(7, size * 0.3) }}
+          className={clsx(
+            "absolute -right-px -bottom-px rounded-full ring-2 ring-[var(--surface)]",
+            status === "active" ? "bg-[#3f9142]" : "bg-[#dc9a15]",
+          )}
+        />
+      </span>
+    );
+  }
+
   if (person.avatarUrl) {
     return (
       // Google profile pictures are remote and unoptimised on purpose.

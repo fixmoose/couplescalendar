@@ -1,5 +1,6 @@
 "use client";
 
+import clsx from "clsx";
 import { LogOut, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
@@ -24,6 +25,23 @@ export function AccountMenu({
       y: rect.bottom + 6,
       items: [
         { kind: "heading", label: store.me.email || store.me.name },
+        {
+          label:
+            store.myPresence === "active"
+              ? "You are in the calendar"
+              : "You are away — click anything to come back",
+          icon: (
+            <span
+              className={clsx(
+                "h-2.5 w-2.5 rounded-full",
+                store.myPresence === "active" ? "bg-[#3f9142]" : "bg-[#dc9a15]",
+              )}
+            />
+          ),
+          disabled: true,
+          onSelect: () => {},
+        },
+        { kind: "separator" },
         {
           label: "Settings",
           icon: <Settings size={13} />,
@@ -63,7 +81,7 @@ export function AccountMenu({
         aria-label="Account"
         className="rounded-full p-0.5 transition hover:bg-surface-2"
       >
-        <Avatar person={store.me} size={28} />
+        <Avatar person={store.me} size={28} status={store.myPresence} />
       </button>
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
     </>

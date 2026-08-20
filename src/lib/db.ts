@@ -158,6 +158,8 @@ export interface Workspace {
   notifications: AppNotification[];
   /** "<reminder id>:<occurrence ISO>" for everything already answered. */
   acknowledged: string[];
+  /** Tables the database does not have yet, so the UI can say which. */
+  missing: string[];
 }
 
 interface FeedRow {
@@ -452,10 +454,41 @@ export async function loadWorkspace(
         .order("created_at"),
     ]);
 
-  const firstError = [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, feeds]
-    .map((r) => r.error)
-    .find(Boolean);
-  if (firstError) throw firstError;
+  /**
+   * A table that has not been created yet should cost its own feature, not the
+   * whole calendar: a schema update is usually a few minutes behind a deploy.
+   * The essentials still fail loudly, because without them there is nothing to
+   * show.
+   */
+  const essential = { profiles, calendars, feed };
+  for (const [name, result] of Object.entries(essential)) {
+    if (result.error) throw Object.assign(result.error, { table: name });
+  }
+
+  const optional: Record<string, { error: { code?: string } | null }> = {
+    cc_groups: groups,
+    cc_group_members: members,
+    cc_event_guests: guests,
+    cc_attachments: attachments,
+    cc_invitations: invites,
+    cc_event_reminders: reminders,
+    cc_event_subscriptions: subscriptions,
+    cc_reminder_acks: acks,
+    cc_event_items: items,
+    cc_notifications: notifications,
+    cc_calendar_feeds: feeds,
+  };
+
+  const missing: string[] = [];
+  for (const [name, result] of Object.entries(optional)) {
+    if (!result.error) continue;
+    // PGRST205 / 42P01: the table is not there yet.
+    if (result.error.code === "PGRST205" || result.error.code === "42P01") {
+      missing.push(name);
+      continue;
+    }
+    throw result.error;
+  }
 
   const memberships = new Map<string, string[]>();
   for (const row of (members.data ?? []) as { group_id: string; user_id: string }[]) {
@@ -538,6 +571,7 @@ export async function loadWorkspace(
     acknowledged: ((acks.data ?? []) as { reminder_id: string; due_at: string }[]).map(
       (row) => `${row.reminder_id}:${new Date(row.due_at).toISOString()}`,
     ),
+    missing,
   };
 }
 
