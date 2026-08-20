@@ -281,6 +281,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setData((current) => (current ? optimistic(current) : current));
       query().catch(async (e) => {
         setError(describe(e, await sessionNote(supabase)));
+        void report(supabase, e);
         void refresh();
       });
     },
@@ -988,6 +989,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [data, error, refresh, savePrefs, supabase, user, write]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+/** Sends a failed write to the server log, so it can be read from outside. */
+async function report(supabase: SupabaseClient, e: unknown) {
+  try {
+    const error = e as {
+      message?: string;
+      code?: string;
+      details?: string;
+      attempted?: unknown;
+    };
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    await fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operation: "write",
+        code: error.code,
+        message: error.message,
+        detail: error.details,
+        hasSession: Boolean(session),
+        userId: session?.user.id,
+        payload: error.attempted,
+      }),
+    });
+  } catch {
+    /* reporting must never make things worse */
+  }
 }
 
 /**

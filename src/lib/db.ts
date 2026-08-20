@@ -544,12 +544,21 @@ async function step<T>(what: string, run: () => Promise<T>): Promise<T> {
 
 export async function insertEvent(supabase: Client, draft: EventDraft, userId: string) {
   const eventId = await step("creating the event", async () => {
+    const payload = eventPayload(draft);
     const { data, error } = await supabase
       .from("cc_events")
-      .insert(eventPayload(draft))
+      .insert(payload)
       .select("id")
       .single();
-    if (error) throw error;
+    if (error) {
+      // Attach what was actually sent, minus anything private.
+      (error as { attempted?: unknown }).attempted = {
+        calendar_id: payload.calendar_id,
+        keys: Object.keys(payload),
+        titleLength: payload.title?.length ?? 0,
+      };
+      throw error;
+    }
     return data.id as string;
   });
 
