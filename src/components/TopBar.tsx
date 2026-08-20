@@ -7,6 +7,7 @@ import { useTheme } from "@/lib/theme";
 import type { CalendarEvent, CalendarView } from "@/lib/types";
 import { AccountMenu } from "./AccountMenu";
 import { NotificationsMenu } from "./NotificationsMenu";
+import { UpNextTicker } from "./UpNextTicker";
 import { Button, IconButton, Segmented, inputClass } from "./ui";
 
 export function TopBar({
@@ -79,6 +80,8 @@ export function TopBar({
       <h1 className="ml-0.5 truncate text-[16px] font-semibold tracking-tight text-ink sm:ml-1 sm:text-[19px]">
         {periodLabel(date, view)}
       </h1>
+
+      <UpNextTicker />
 
       <div className="ml-auto flex items-center gap-2.5">
         <div className="relative hidden md:block">

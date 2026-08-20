@@ -179,6 +179,34 @@ button {
   border-color: color-mix(in oklab, var(--text-faint) 26%, var(--surface));
 }
 
+/*
+ * The up-next ticker. The track holds the same list twice and slides exactly
+ * half its width, so the loop meets itself with no gap and no jump.
+ */
+@keyframes cc-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.cc-marquee {
+  animation: cc-marquee linear infinite;
+}
+
+.cc-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* Motion that loops forever is exactly what this setting is for. */
+@media (prefers-reduced-motion: reduce) {
+  .cc-marquee {
+    animation: none;
+  }
+}
+
 @keyframes cc-pop {
   from {
     opacity: 0;
