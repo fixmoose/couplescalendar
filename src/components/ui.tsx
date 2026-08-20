@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import {
   useEffect,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
@@ -194,32 +195,60 @@ export const inputClass = `${controlClass} w-full`;
 export function Toast({
   message,
   busy,
+  sticky,
   onDismiss,
 }: {
   message: string | null;
   busy?: boolean;
+  /** Errors stay until dismissed — four seconds is not long enough to read one. */
+  sticky?: boolean;
   onDismiss: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
-    if (!message || busy) return;
-    const id = window.setTimeout(onDismiss, 4000);
+    if (!message || busy || sticky) return;
+    const id = window.setTimeout(onDismiss, 5000);
     return () => window.clearTimeout(id);
-  }, [message, busy, onDismiss]);
+  }, [message, busy, sticky, onDismiss]);
 
   if (!message) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
-      <div className="cc-pop pointer-events-auto flex items-center gap-2.5 rounded-full border border-line bg-surface px-4 py-2 text-[13px] text-ink shadow-[var(--shadow-md)]">
-        {busy && (
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-brand" />
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+      <div
+        className={clsx(
+          "cc-pop pointer-events-auto flex max-w-[560px] items-start gap-2.5 rounded-2xl border px-4 py-2.5 text-[13px] shadow-[var(--shadow-md)]",
+          sticky
+            ? "border-[#d1443c]/30 bg-[color-mix(in_oklab,#d1443c_8%,var(--surface))] text-ink"
+            : "border-line bg-surface text-ink",
         )}
-        <span>{message}</span>
+      >
+        {busy && (
+          <span className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-line border-t-brand" />
+        )}
+        <span className="min-w-0 flex-1 leading-relaxed break-words">{message}</span>
+
+        {sticky && (
+          <button
+            type="button"
+            title="Copy this message"
+            onClick={() => {
+              void navigator.clipboard?.writeText(message);
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            }}
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-muted hover:bg-surface-2 hover:text-ink"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
+
         {!busy && (
           <button
             type="button"
             onClick={onDismiss}
-            className="-mr-1.5 flex h-6 w-6 items-center justify-center rounded-full text-ink-faint hover:bg-surface-2"
+            className="-mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-faint hover:bg-surface-2"
           >
             <X size={13} />
           </button>

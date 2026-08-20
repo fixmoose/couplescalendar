@@ -664,6 +664,7 @@ export function CalendarApp() {
             : (store.error ?? notice)
         }
         busy={uploading > 0}
+        sticky={Boolean(store.error)}
         onDismiss={() => {
           setNotice(null);
           store.clearError();

@@ -14,7 +14,7 @@ import {
 import { canEdit, participantIds } from "./access";
 import * as db from "./db";
 import { inviteToEvent } from "./invites";
-import { createClient } from "./supabase/client";
+import { createClient, ensureSession } from "./supabase/client";
 import type {
   Attachment,
   Calendar,
@@ -263,6 +263,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [supabase, user, load]);
 
+  // Sessions refresh in the background; follow them rather than reading once.
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setData(EMPTY);
+        return;
+      }
+      if (session?.user) setUser((current) => current ?? session.user);
+    });
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
   const refresh = useCallback(async () => {
     if (!user) return;
     try {
@@ -279,11 +294,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const write = useCallback(
     (optimistic: (d: Data) => Data, query: () => Promise<unknown>) => {
       setData((current) => (current ? optimistic(current) : current));
-      query().catch(async (e) => {
-        setError(describe(e, await sessionNote(supabase)));
-        void report(supabase, e);
-        void refresh();
-      });
+      void (async () => {
+        // A write with no session is refused by the database in a way that
+        // reads like a permissions fault, so check before sending.
+        if (!(await ensureSession(supabase))) {
+          setError("You are signed out — reload the page and sign in again.");
+          return;
+        }
+        await query().catch(async (e) => {
+          setError(describe(e, await sessionNote(supabase)));
+          void report(supabase, e);
+          void refresh();
+        });
+      })();
     },
     [refresh, supabase],
   );

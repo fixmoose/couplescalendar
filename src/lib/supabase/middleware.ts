@@ -26,7 +26,8 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // getUser() revalidates against Supabase — do not swap it for getSession().
+  // getUser() revalidates against Supabase and refreshes the token when it is
+  // close to expiring, which is what keeps somebody signed in from day to day.
   const {
     data: { user },
   } = await supabase.auth.getUser();
