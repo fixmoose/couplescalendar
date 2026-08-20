@@ -532,10 +532,41 @@ create policy cc_visibility_all on cc_calendar_visibility for all
 -- Events: the base table only ever hands over rows the viewer may see in FULL.
 -- Busy blocks come from the cc_calendar_feed view below, which is the only way
 -- to learn that someone else's time is taken — the details never leave the row.
+-- Reading an event: decided from the row's own columns, never by looking the
+-- row up again. A STABLE function that selects from cc_events cannot see a row
+-- that is still being inserted, which refuses INSERT ... RETURNING.
 drop policy if exists cc_events_read on cc_events;
 create policy cc_events_read on cc_events for select using (
-  cc_event_access(id, auth.uid()) = 'full'
+  -- Full access only. Busy blocks are served by cc_calendar_feed, never from
+  -- this table, so nothing here may match an event you may only see as busy.
+  exists (
+    select 1
+    from cc_calendars c
+    where c.id = cc_events.calendar_id
+      and (
+        -- your own calendar
+        c.owner_id = auth.uid()
+        -- a calendar your group shares
+        or (c.kind = 'shared' and cc_is_group_member(c.group_id, auth.uid()))
+        -- somebody who publishes details to the groups you share with them
+        or (
+          coalesce(cc_events.privacy, c.privacy) = 'details'
+          and exists (
+            select 1
+            from cc_group_members mine
+            join cc_group_members theirs on theirs.group_id = mine.group_id
+            where mine.user_id = auth.uid() and theirs.user_id = c.owner_id
+          )
+        )
+      )
+  )
+  -- or it was shared with you directly
+  or exists (
+    select 1 from cc_event_shares s
+    where s.event_id = cc_events.id and s.user_id = auth.uid()
+  )
 );
+
 drop policy if exists cc_events_insert on cc_events;
 create policy cc_events_insert on cc_events for insert with check (
   created_by = auth.uid() and cc_can_write_calendar(calendar_id, auth.uid())

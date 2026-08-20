@@ -543,15 +543,15 @@ async function step<T>(what: string, run: () => Promise<T>): Promise<T> {
 }
 
 export async function insertEvent(supabase: Client, draft: EventDraft, userId: string) {
-  const eventId = await step("creating the event", async () => {
-    const payload = eventPayload(draft);
-    const { data, error } = await supabase
-      .from("cc_events")
-      .insert(payload)
-      .select("id")
-      .single();
+  // The id is chosen here rather than asked for back. Requesting the inserted
+  // row means INSERT ... RETURNING, which forces the select policy to judge a
+  // row that is still being written — and no read policy can see it yet.
+  const eventId = crypto.randomUUID();
+
+  await step("creating the event", async () => {
+    const payload = { id: eventId, ...eventPayload(draft) };
+    const { error } = await supabase.from("cc_events").insert(payload);
     if (error) {
-      // Attach what was actually sent, minus anything private.
       (error as { attempted?: unknown }).attempted = {
         calendar_id: payload.calendar_id,
         keys: Object.keys(payload),
@@ -559,7 +559,6 @@ export async function insertEvent(supabase: Client, draft: EventDraft, userId: s
       };
       throw error;
     }
-    return data.id as string;
   });
 
   await step("sharing it", () => setShares(supabase, eventId, draft.sharedWith, userId));
@@ -617,13 +616,12 @@ export async function duplicateEvent(supabase: Client, id: string, userId: strin
     .single();
   if (error) throw error;
 
-  const { data: created, error: insertError } = await supabase
+  const copyId = crypto.randomUUID();
+  const { error: insertError } = await supabase
     .from("cc_events")
-    .insert({ ...data, title: `${data.title} (copy)`, created_by: userId })
-    .select("id")
-    .single();
+    .insert({ ...data, id: copyId, title: `${data.title} (copy)`, created_by: userId });
   if (insertError) throw insertError;
-  return created.id as string;
+  return copyId;
 }
 
 /** Replaces the guest list with exactly these people. */
