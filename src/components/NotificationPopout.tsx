@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { CalendarDays, Check, Clock, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
+import { toneForKind, toneLabel, toneVar } from "./tone";
 import type { AppNotification, CalendarEvent } from "@/lib/types";
 import { Avatar, Button } from "./ui";
 
@@ -34,6 +35,11 @@ function remember(id: string) {
   } catch {
     /* ignore */
   }
+}
+
+/** The small square of colour beside the label. */
+function ProvenanceDot() {
+  return <span className="cc-dot h-2 w-2 shrink-0 rounded-[3px]" />;
 }
 
 export function NotificationPopout({
@@ -122,16 +128,32 @@ export function NotificationPopout({
         const event = store.visibleEvents.find((e) => e.id === n.eventId);
         const start = event ? new Date(event.start) : null;
 
+        const tone = toneForKind(n.kind);
+
         return (
           <div
             key={n.id}
-            className="cc-pop pointer-events-auto overflow-hidden rounded-xl border border-line bg-surface shadow-[var(--shadow-lg)]"
+            style={toneVar(tone)}
+            className="cc-pop cc-tint-border pointer-events-auto overflow-hidden rounded-xl border-2 bg-surface shadow-[var(--shadow-lg)]"
           >
-            <div className="flex items-start gap-2.5 p-3">
+            {/* The rail is the tell: blue for a share, violet for an invite. */}
+            <div className="cc-dot h-1 w-full" />
+
+            <div className="flex items-center gap-1.5 px-3 pt-2">
+              <ProvenanceDot />
+              <span
+                className="text-[10px] font-bold tracking-wider uppercase"
+                style={{ color: "var(--c)" }}
+              >
+                {toneLabel(tone)}
+              </span>
+            </div>
+
+            <div className="flex items-start gap-2.5 px-3 pt-1.5 pb-3">
               {actor ? (
                 <Avatar person={actor} size={30} />
               ) : (
-                <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-brand-soft text-brand">
+                <span className="cc-tint flex h-[30px] w-[30px] items-center justify-center rounded-full">
                   <CalendarDays size={15} />
                 </span>
               )}

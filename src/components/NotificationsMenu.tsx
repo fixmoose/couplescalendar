@@ -6,6 +6,7 @@ import { Bell, Check, Share2, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import type { CalendarEvent } from "@/lib/types";
+import { toneForKind, toneVar } from "./tone";
 import { Avatar } from "./ui";
 
 /**
@@ -120,13 +121,17 @@ export function NotificationsMenu({
                     n.readAt ? "hover:bg-surface-2" : "bg-brand-soft/40 hover:bg-brand-soft",
                   )}
                 >
-                  {actor ? (
-                    <Avatar person={actor} size={26} />
-                  ) : (
-                    <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-surface-2 text-ink-faint">
-                      <Share2 size={13} />
-                    </span>
-                  )}
+                  <span className="relative shrink-0" style={toneVar(toneForKind(n.kind))}>
+                    {actor ? (
+                      <Avatar person={actor} size={26} />
+                    ) : (
+                      <span className="cc-tint flex h-[26px] w-[26px] items-center justify-center rounded-full">
+                        <Share2 size={13} />
+                      </span>
+                    )}
+                    {/* Same colour code as the pop-out it arrived as. */}
+                    <span className="cc-dot absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--surface)]" />
+                  </span>
 
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] leading-snug text-ink">

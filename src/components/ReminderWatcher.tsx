@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import type { CalendarEvent, Reminder } from "@/lib/types";
 import { listMeta } from "./EventList";
 import { describeReminder } from "./RemindersField";
+import { toneLabel, toneVar } from "./tone";
 import { Button } from "./ui";
 
 /**
@@ -165,19 +166,26 @@ export function ReminderWatcher() {
             .filter((r) => r.minutesBefore < reminder.minutesBefore)
             .sort((a, b) => b.minutesBefore - a.minutesBefore)[0];
 
+          const tone = event.importance === "urgent" ? "urgent" : "reminder";
+
           return (
             <div
               key={item.key}
-              className="cc-pop overflow-hidden rounded-xl border border-line bg-surface shadow-[var(--shadow-lg)]"
+              style={toneVar(tone)}
+              className="cc-pop cc-tint-border overflow-hidden rounded-xl border-2 bg-surface shadow-[var(--shadow-lg)]"
             >
+              <div className="cc-dot h-1 w-full" />
+
               <div className="p-3.5">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-brand uppercase">
-                  <Bell size={13} /> {describeReminder(reminder.minutesBefore)}
-                  {event.importance === "urgent" && (
-                    <span className="ml-auto flex items-center gap-1 text-[#d1443c]">
-                      <AlertTriangle size={12} /> urgent
-                    </span>
-                  )}
+                <div
+                  className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase"
+                  style={{ color: "var(--c)" }}
+                >
+                  {tone === "urgent" ? <AlertTriangle size={13} /> : <Bell size={13} />}
+                  {toneLabel(tone)}
+                  <span className="ml-auto font-semibold tracking-normal normal-case opacity-80">
+                    {describeReminder(reminder.minutesBefore)}
+                  </span>
                 </div>
 
                 <h2 className="mt-1.5 text-[17px] leading-tight font-bold text-ink">

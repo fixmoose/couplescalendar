@@ -255,7 +255,8 @@ async function pushDueReminders(admin: ReturnType<typeof createAdminClient>) {
               keys: { p256dh: subscription.p256dh, auth: subscription.auth },
             },
             JSON.stringify({
-              title: row.event.title,
+              // A lock screen has no colour to read, so the words carry it.
+              title: `Reminder · ${row.event.title}`,
               body: `${describeMinutes(row.minutes_before)} · ${when}`,
               tag: `reminder:${row.id}:${dueAt}`,
               url: `/calendar?event=${row.event.id}`,
