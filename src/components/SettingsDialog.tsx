@@ -139,7 +139,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <AutoShareField />
         </Field>
 
-        <Field label="When somebody shares an event with me, my groups see">
+        <Field label="When somebody shares an event with me, everyone else sees">
           <Choice<boolean>
             value={sharedBusy}
             onChange={(v) => store.setSharedBusy(v)}
@@ -150,8 +150,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           />
           <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
             {sharedBusy
-              ? "You still see the whole event — this is only about everybody else. An event shared with you takes up your time, so people in your groups get a grey block at that hour: never the title, the place or who shared it. It stops them booking you for something else."
-              : "Nobody sees that hour is taken. You still see the whole event, but your groups get no block at all, so they may arrange something over the top of it."}
+              ? "People in your groups get a grey block at that hour — never the title, the place, or who it is with. It stops them booking you for something else."
+              : "Nobody sees that the hour is taken, so your groups may arrange something over the top of it."}
+          </p>
+          {/*
+           * People kept asking for a third option here — let them see the
+           * whole thing — which is the one choice that is not the viewer's to
+           * make. The details belong to whoever created the event.
+           */}
+          <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
+            There is no option to show them the event itself: it is not yours to
+            pass on. Anybody actually on the event already sees it in full, and
+            for your <em>own</em> events the same choice — details, busy, or
+            nothing — sits on each calendar, under Privacy.
           </p>
         </Field>
 
