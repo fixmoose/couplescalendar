@@ -22,6 +22,7 @@ import type {
   Privacy,
   Reminder,
   ReminderDraft,
+  JoinRequest,
 } from "./types";
 
 /**
@@ -164,6 +165,8 @@ export interface Workspace {
   notes: Note[];
   /** People every new event of mine is shared with automatically. */
   autoShare: string[];
+  /** Who the groups have been asked to let in. */
+  joinRequests: JoinRequest[];
   /** Tables the database does not have yet, so the UI can say which. */
   missing: string[];
 }
@@ -497,7 +500,7 @@ export async function loadWorkspace(
   hiddenCalendarIds: Set<string>,
   userId: string,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds, autoShare] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds, autoShare, joinRequests, joinVotes] =
     await Promise.all([
       supabase
         .from("cc_profiles")
@@ -551,6 +554,12 @@ export async function loadWorkspace(
         )
         .order("created_at"),
       supabase.from("cc_auto_share").select("owner_id,user_id"),
+      supabase
+        .from("cc_group_join_requests")
+        .select("id,group_id,invitee_id,email,proposed_by,status,created_at")
+        .in("status", ["pending", "approved"])
+        .order("created_at", { ascending: false }),
+      supabase.from("cc_group_join_votes").select("request_id,user_id,approve"),
     ]);
 
   /**
@@ -579,6 +588,8 @@ export async function loadWorkspace(
     cc_note_events: noteLinks,
     cc_calendar_feeds: feeds,
     cc_auto_share: autoShare,
+    cc_group_join_requests: joinRequests,
+    cc_group_join_votes: joinVotes,
   };
 
   const missing: string[] = [];
@@ -684,6 +695,18 @@ export async function loadWorkspace(
     autoShare: ((autoShare.data ?? []) as { owner_id: string; user_id: string }[])
       .filter((row) => row.owner_id === userId)
       .map((row) => row.user_id),
+    joinRequests: ((joinRequests.data ?? []) as JoinRequestRow[]).map((row) => ({
+      id: row.id,
+      groupId: row.group_id,
+      inviteeId: row.invitee_id ?? undefined,
+      email: row.email ?? undefined,
+      proposedBy: row.proposed_by,
+      status: row.status,
+      votes: ((joinVotes.data ?? []) as VoteRow[])
+        .filter((v) => v.request_id === row.id)
+        .map((v) => ({ userId: v.user_id, approve: v.approve })),
+      createdAt: row.created_at,
+    })),
     missing,
   };
 }
@@ -881,6 +904,113 @@ export async function setShares(
     })),
   );
   if (error) throw error;
+}
+
+interface JoinRequestRow {
+  id: string;
+  group_id: string;
+  invitee_id: string | null;
+  email: string | null;
+  proposed_by: string;
+  status: JoinRequest["status"];
+  created_at: string;
+}
+
+interface VoteRow {
+  request_id: string;
+  user_id: string;
+  approve: boolean;
+}
+
+/* ------------------------------------------------------------------ *
+ * Letting somebody into a group
+ * ------------------------------------------------------------------ */
+
+/** Ask the group to admit somebody. Returns the request id. */
+export async function proposeMember(
+  supabase: Client,
+  groupId: string,
+  who: { email?: string; userId?: string },
+) {
+  const { data, error } = await supabase.rpc("cc_propose_member", {
+    p_group: groupId,
+    p_email: who.email ?? null,
+    p_invitee: who.userId ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function voteOnJoinRequest(
+  supabase: Client,
+  requestId: string,
+  approve: boolean,
+) {
+  const { data, error } = await supabase.rpc("cc_vote_join_request", {
+    p_request: requestId,
+    p_approve: approve,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function withdrawJoinRequest(supabase: Client, requestId: string) {
+  const { error } = await supabase.rpc("cc_withdraw_join_request", {
+    p_request: requestId,
+  });
+  if (error) throw error;
+}
+
+/** The newcomer's own answer, once the group has agreed. */
+export async function answerGroupInvite(
+  supabase: Client,
+  requestId: string,
+  accept: boolean,
+) {
+  const { error } = await supabase.rpc("cc_join_from_request", {
+    p_request: requestId,
+    p_accept: accept,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Turns requests the group has agreed to into real invitations and posts them.
+ * Only ever creates the invitation through the database function, so a client
+ * cannot mint one carrying a group of its own accord.
+ */
+export async function sendApprovedGroupInvites(
+  supabase: Client,
+  fromName: string,
+  linkFor: (token: string) => string,
+) {
+  const { data } = await supabase.rpc("cc_pending_group_invites");
+  const pending = (data ?? []) as { request_id: string; group_id: string; email: string }[];
+  if (!pending.length) return 0;
+
+  const posted: { email: string; token: string; link: string }[] = [];
+
+  for (const row of pending) {
+    const token = crypto.randomUUID().replace(/-/g, "");
+    const { data: invitationId, error } = await supabase.rpc("cc_record_group_invitation", {
+      p_request: row.request_id,
+      p_token: token,
+    });
+    if (error || !invitationId) continue;
+    posted.push({ email: row.email, token, link: linkFor(token) });
+  }
+
+  if (!posted.length) return 0;
+
+  // The invitation rows exist whatever happens next, so a mail failure leaves
+  // something the sidebar can resend rather than losing the decision.
+  await fetch("/api/invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invites: posted, fromName }),
+  }).catch(() => {});
+
+  return posted.length;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1082,7 +1212,7 @@ export async function insertGroup(
   if (error) throw error;
 
   const groupId = data.id as string;
-  await setGroupMembers(supabase, groupId, memberIds, userId);
+  await setGroupMembers(supabase, groupId, memberIds, userId, []);
   return groupId;
 }
 
@@ -1091,22 +1221,36 @@ export async function setGroupMembers(
   groupId: string,
   memberIds: string[],
   ownerId: string,
+  /** Who is in it now, so newcomers can be told apart from the rest. */
+  currentIds: string[] = [],
 ) {
-  const wanted = [...new Set([ownerId, ...memberIds])];
-  const { error: clearError } = await supabase
-    .from("cc_group_members")
-    .delete()
-    .eq("group_id", groupId);
-  if (clearError) throw clearError;
+  const wanted = new Set([ownerId, ...memberIds]);
 
-  const { error } = await supabase.from("cc_group_members").insert(
-    wanted.map((user_id) => ({
-      group_id: groupId,
-      user_id,
-      role: user_id === ownerId ? "owner" : "member",
-    })),
-  );
-  if (error) throw error;
+  // Taking somebody out is immediate: nobody's calendar is exposed by it.
+  const removing = currentIds.filter((id) => !wanted.has(id) && id !== ownerId);
+  if (removing.length) {
+    const { error } = await supabase
+      .from("cc_group_members")
+      .delete()
+      .eq("group_id", groupId)
+      .in("user_id", removing);
+    if (error) throw error;
+  }
+
+  // You may always put yourself in a group you own.
+  if (!currentIds.includes(ownerId)) {
+    const { error } = await supabase
+      .from("cc_group_members")
+      .insert({ group_id: groupId, user_id: ownerId, role: "owner" });
+    if (error) throw error;
+  }
+
+  // Everybody else is a question for the group — which a group of one answers
+  // on the spot, so making a group and naming people still feels like one act.
+  for (const id of memberIds) {
+    if (id === ownerId || currentIds.includes(id)) continue;
+    await proposeMember(supabase, groupId, { userId: id });
+  }
 }
 
 export async function patchGroup(

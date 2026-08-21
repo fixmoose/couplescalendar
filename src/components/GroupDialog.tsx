@@ -41,8 +41,14 @@ export function GroupDialog({
       setMembers((current) =>
         current.includes(existing.id) ? current : [...current, existing.id],
       );
+    } else if (group) {
+      // Into an existing group: the group decides, then the mail goes.
+      await store.proposeMember(group.id, { email: value });
+      setSent((current) => [...current, value]);
     } else {
-      await store.createInvites([value], group?.id);
+      // A group that does not exist yet has nobody to ask; the invitation is
+      // made once it does, from the members list.
+      await store.createInvites([value]);
       setSent((current) => [...current, value]);
     }
     setEmail("");

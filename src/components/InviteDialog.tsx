@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Check, CheckCircle2, Copy, Mail, Plus, Send, TriangleAlert } from "lucide-react";
+import { Check, CheckCircle2, Copy, Mail, Plus, Send, TriangleAlert, Users } from "lucide-react";
 import { useState } from "react";
 import { publicUrl } from "@/lib/site";
 import { useStore } from "@/lib/store";
@@ -23,6 +23,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
   const [groupId, setGroupId] = useState("");
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [asked, setAsked] = useState<string[]>([]);
   const [sent, setSent] = useState<Invite[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -41,10 +42,29 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
   const emails = parseEmails(raw);
   const pending = store.invites.filter((i) => i.status !== "accepted");
 
+  // Into a group that already has other people, the group decides first.
+  const chosenGroup = store.groups.find((g) => g.id === groupId);
+  const needsAgreement = Boolean(chosenGroup && chosenGroup.memberIds.length > 1);
+
   const send = async () => {
     if (!emails.length) return;
     setSending(true);
     setError(null);
+
+    /*
+     * Into a group with other people in it, the invitation is not ours to send
+     * yet: everybody already there has to agree first, since the newcomer will
+     * see when each of them is busy. The mail goes out on the last yes.
+     */
+    if (needsAgreement && chosenGroup) {
+      for (const email of emails) {
+        await store.proposeMember(chosenGroup.id, { email });
+      }
+      setSending(false);
+      setAsked(emails);
+      setRaw("");
+      return;
+    }
 
     const invites = await store.createInvites(emails, groupId || undefined);
     if (!invites.length) {
@@ -106,6 +126,26 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
     window.setTimeout(() => setCopied(null), 1500);
   };
 
+  if (asked.length) {
+    return (
+      <Modal title="Asked the group" onClose={onClose} width={440}>
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <Users size={28} className="text-brand" />
+          <p className="text-[15px] font-medium text-ink">
+            {asked.length === 1
+              ? `Everyone in the group has been asked about ${asked[0]}`
+              : `Everyone in the group has been asked about ${asked.length} people`}
+          </p>
+          <p className="max-w-sm text-[13px] leading-relaxed text-ink-muted">
+            The invitation goes out once they all agree — whoever joins will see
+            when each of them is busy, so it is not one person&apos;s decision to
+            make. You will hear either way.
+          </p>
+        </div>
+      </Modal>
+    );
+  }
+
   if (delivered) {
     return (
       <Modal title="Invitation sent" onClose={onClose} width={420}>
@@ -138,7 +178,9 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
             <Send size={15} />
             {sending
               ? "Sending…"
-              : `Send ${emails.length || ""} invite${emails.length === 1 ? "" : "s"}`}
+              : needsAgreement
+                ? `Ask the group about ${emails.length || ""} ${emails.length === 1 ? "person" : "people"}`
+                : `Send ${emails.length || ""} invite${emails.length === 1 ? "" : "s"}`}
           </Button>
         </>
       }

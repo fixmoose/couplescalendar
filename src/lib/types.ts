@@ -249,6 +249,19 @@ export interface Feed {
 }
 
 /** An emailed invitation to join CouplesCalendar. */
+/** Somebody a group has been asked to let in, and where that has got to. */
+export interface JoinRequest {
+  id: string;
+  groupId: string;
+  inviteeId?: string;
+  email?: string;
+  proposedBy: string;
+  status: "pending" | "approved" | "denied" | "withdrawn";
+  /** Who has answered, and how. Only the group can see this. */
+  votes: { userId: string; approve: boolean }[];
+  createdAt: string;
+}
+
 export interface Invite {
   id: string;
   email: string;

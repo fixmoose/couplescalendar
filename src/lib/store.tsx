@@ -16,6 +16,7 @@ import * as db from "./db";
 import { inviteToEvent } from "./invites";
 import { usePresence, type Presence } from "./presence";
 import { deliverNow } from "./push";
+import { publicUrl } from "./site";
 import { createClient, ensureSession } from "./supabase/client";
 import type {
   Attachment,
@@ -28,6 +29,7 @@ import type {
   Importance,
   ListKind,
   Invite,
+  JoinRequest,
   Note,
   Person,
   Privacy,
@@ -211,6 +213,21 @@ interface StoreValue extends Data {
   syncFeed: (id: string) => Promise<void>;
   removeFeed: (id: string) => void;
   createInvites: (emails: string[], groupId?: string) => Promise<Invite[]>;
+  /**
+   * Letting somebody into a group. Joining exposes every member's busy times
+   * to the newcomer and the newcomer's to them, so it is a proposal the group
+   * answers rather than something one person does — and the newcomer accepts
+   * for themselves once the group has agreed.
+   */
+  joinRequests: JoinRequest[];
+  /** Waiting on my answer: a group I am in has been asked to admit somebody. */
+  pendingForMe: JoinRequest[];
+  /** Groups that have agreed to admit me, waiting for me to say yes. */
+  invitationsForMe: JoinRequest[];
+  proposeMember: (groupId: string, who: { email?: string; userId?: string }) => Promise<void>;
+  voteOnJoin: (requestId: string, approve: boolean) => Promise<void>;
+  withdrawJoin: (requestId: string) => void;
+  answerGroupInvite: (requestId: string, accept: boolean) => Promise<void>;
   updateInvite: (id: string, patch: Partial<Invite>) => void;
   cancelInvite: (id: string) => void;
   /** Who is looking at their calendar right now. */
@@ -233,6 +250,7 @@ const EMPTY: Data = {
   acknowledged: [],
   notes: [],
   autoShare: [],
+  joinRequests: [],
   missing: [],
   busyHidden: [],
 };
@@ -989,6 +1007,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createGroup: async (name, memberIds, withCalendar = false) => {
         try {
           const groupId = await db.insertGroup(supabase, name, memberIds, userId);
+          await sendAgreedInvites(supabase, d.people.find((x) => x.id === userId)?.name ?? "Somebody");
           if (withCalendar) {
             await db.insertCalendar(supabase, {
               name: name.trim() || "Shared",
@@ -1016,7 +1035,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ),
           }),
           async () => {
-            await db.setGroupMembers(supabase, groupId, memberIds, userId);
+            await db.setGroupMembers(
+              supabase,
+              groupId,
+              memberIds,
+              userId,
+              d.groups.find((g) => g.id === groupId)?.memberIds ?? [],
+            );
+            await sendAgreedInvites(supabase, d.people.find((x) => x.id === userId)?.name ?? "Somebody");
             await refresh();
           },
         ),
@@ -1085,6 +1111,60 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             await refresh();
           },
         ),
+
+      joinRequests: d.joinRequests,
+
+      pendingForMe: d.joinRequests.filter(
+        (r) =>
+          r.status === "pending" &&
+          d.groups.some((g) => g.id === r.groupId && g.memberIds.includes(userId)) &&
+          !r.votes.some((v) => v.userId === userId),
+      ),
+
+      invitationsForMe: d.joinRequests.filter(
+        (r) => r.status === "approved" && r.inviteeId === userId,
+      ),
+
+      proposeMember: async (groupId, who) => {
+        try {
+          await db.proposeMember(supabase, groupId, who);
+          // A group of one agrees on the spot, so the invitation can go now.
+          await sendAgreedInvites(supabase, d.people.find((x) => x.id === userId)?.name ?? "Somebody");
+          await refresh();
+        } catch (e) {
+          setError(describe(e, "asking the group"));
+        }
+      },
+
+      voteOnJoin: async (requestId, approve) => {
+        try {
+          const outcome = await db.voteOnJoinRequest(supabase, requestId, approve);
+          if (outcome === "approved") {
+            await sendAgreedInvites(supabase, d.people.find((x) => x.id === userId)?.name ?? "Somebody");
+          }
+          await refresh();
+        } catch (e) {
+          setError(describe(e, "answering"));
+        }
+      },
+
+      withdrawJoin: (requestId) =>
+        write(
+          (s) => ({
+            ...s,
+            joinRequests: s.joinRequests.filter((r) => r.id !== requestId),
+          }),
+          () => db.withdrawJoinRequest(supabase, requestId),
+        ),
+
+      answerGroupInvite: async (requestId, accept) => {
+        try {
+          await db.answerGroupInvite(supabase, requestId, accept);
+          await refresh();
+        } catch (e) {
+          setError(describe(e, "joining"));
+        }
+      },
 
       createInvites: async (emails, groupId) => {
         const known = new Set(
@@ -1367,6 +1447,15 @@ async function sessionNote(supabase: SupabaseClient) {
 }
 
 /** Which delta to paste, given which tables are missing. */
+/** The link an invitation email points at — the same one the dialog builds. */
+function sendAgreedInvites(supabase: SupabaseClient, fromName: string) {
+  return db.sendApprovedGroupInvites(
+    supabase,
+    fromName,
+    (token) => `${publicUrl()}/join/${token}`,
+  );
+}
+
 function deltaFor(missing: string[]) {
   const files = new Set<string>();
   for (const table of missing) {
@@ -1380,6 +1469,8 @@ function deltaFor(missing: string[]) {
     else if (table === "cc_note_events") files.add("supabase/delta-note-events.sql");
     else if (table === "cc_auto_share" || table === "cc_event_changes")
       files.add("supabase/delta-always-share.sql");
+    else if (table === "cc_group_join_requests" || table === "cc_group_join_votes")
+      files.add("supabase/delta-group-consent.sql");
     else files.add("supabase/schema.sql");
   }
   return [...files].join(" and ");

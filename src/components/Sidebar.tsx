@@ -25,6 +25,7 @@ import { colorVar, COLOR_KEYS, COLORS } from "@/lib/colors";
 import { useStore } from "@/lib/store";
 import type { Calendar, Group } from "@/lib/types";
 import type { MenuItem, MenuState } from "./ContextMenu";
+import { JoinRequests } from "./JoinRequests";
 import { MiniMonth } from "./MiniMonth";
 import { Avatar, Button } from "./ui";
 
@@ -397,6 +398,8 @@ export function Sidebar({
             <span className="ml-auto text-[11px] text-brand">back to all</span>
           )}
         </button>
+
+        <JoinRequests />
 
         <MiniMonth
           selected={selected}
