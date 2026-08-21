@@ -7,6 +7,7 @@ import { useIsMobile } from "@/lib/media";
 import { useSettings, type Settings } from "@/lib/settings";
 import { useStore } from "@/lib/store";
 import type { CalendarView } from "@/lib/types";
+import { AutoShareField } from "./AutoShareField";
 import { InstallHint } from "./InstallHint";
 import { TOUR_SEEN_KEY } from "./PhoneTour";
 import { PushToggle } from "./PushToggle";
@@ -134,19 +135,23 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           />
         </Field>
 
-        <Field label="When somebody shares an event with me">
+        <Field label="Always share what I create with">
+          <AutoShareField />
+        </Field>
+
+        <Field label="When somebody shares an event with me, my groups see">
           <Choice<boolean>
             value={sharedBusy}
             onChange={(v) => store.setSharedBusy(v)}
             options={[
-              { value: true, label: "Show me as busy" },
-              { value: false, label: "Keep it to myself" },
+              { value: true, label: "That I am busy" },
+              { value: false, label: "Nothing at all" },
             ]}
           />
           <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-            An event somebody shares with you takes up your time, so your groups
-            see a grey busy block — never what it is. Turn it off and only you
-            will know.
+            {sharedBusy
+              ? "You still see the whole event — this is only about everybody else. An event shared with you takes up your time, so people in your groups get a grey block at that hour: never the title, the place or who shared it. It stops them booking you for something else."
+              : "Nobody sees that hour is taken. You still see the whole event, but your groups get no block at all, so they may arrange something over the top of it."}
           </p>
         </Field>
 

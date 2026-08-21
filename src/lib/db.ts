@@ -162,6 +162,8 @@ export interface Workspace {
   /** "<reminder id>:<occurrence ISO>" for everything already answered. */
   acknowledged: string[];
   notes: Note[];
+  /** People every new event of mine is shared with automatically. */
+  autoShare: string[];
   /** Tables the database does not have yet, so the UI can say which. */
   missing: string[];
 }
@@ -493,8 +495,9 @@ export async function bootstrapMe(supabase: Client) {
 export async function loadWorkspace(
   supabase: Client,
   hiddenCalendarIds: Set<string>,
+  userId: string,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds, autoShare] =
     await Promise.all([
       supabase
         .from("cc_profiles")
@@ -547,6 +550,7 @@ export async function loadWorkspace(
           "id,calendar_id,name,url,mode,interval_minutes,last_synced_at,last_status,last_error,event_count",
         )
         .order("created_at"),
+      supabase.from("cc_auto_share").select("owner_id,user_id"),
     ]);
 
   /**
@@ -574,6 +578,7 @@ export async function loadWorkspace(
     cc_notes: notes,
     cc_note_events: noteLinks,
     cc_calendar_feeds: feeds,
+    cc_auto_share: autoShare,
   };
 
   const missing: string[] = [];
@@ -674,6 +679,11 @@ export async function loadWorkspace(
         .filter((l) => l.note_id === row.id)
         .map((l) => l.event_id),
     })),
+    // Only my own standing arrangements — the table also holds rows naming me,
+    // which are somebody else's decision to share with me.
+    autoShare: ((autoShare.data ?? []) as { owner_id: string; user_id: string }[])
+      .filter((row) => row.owner_id === userId)
+      .map((row) => row.user_id),
     missing,
   };
 }
@@ -707,7 +717,13 @@ async function step<T>(what: string, run: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function insertEvent(supabase: Client, draft: EventDraft, userId: string) {
+export async function insertEvent(
+  supabase: Client,
+  draft: EventDraft,
+  userId: string,
+  /** Of those shares, which are the standing arrangement rather than a choice. */
+  automatic: string[] = [],
+) {
   // The id is chosen here rather than asked for back. Requesting the inserted
   // row means INSERT ... RETURNING, which forces the select policy to judge a
   // row that is still being written — and no read policy can see it yet.
@@ -726,7 +742,9 @@ export async function insertEvent(supabase: Client, draft: EventDraft, userId: s
     }
   });
 
-  await step("sharing it", () => setShares(supabase, eventId, draft.sharedWith, userId));
+  await step("sharing it", () =>
+    setShares(supabase, eventId, draft.sharedWith, userId, automatic),
+  );
   await step("attaching files", () =>
     linkAttachments(supabase, eventId, draft.attachments ?? [], userId),
   );
@@ -741,6 +759,7 @@ export async function updateEvent(
   id: string,
   draft: EventDraft,
   userId: string,
+  automatic: string[] = [],
 ) {
   await step("updating the event", async () => {
     const { error } = await supabase
@@ -750,7 +769,9 @@ export async function updateEvent(
     if (error) throw error;
   });
 
-  await step("sharing it", () => setShares(supabase, id, draft.sharedWith, userId));
+  await step("sharing it", () =>
+    setShares(supabase, id, draft.sharedWith, userId, automatic),
+  );
   await step("attaching files", () =>
     linkAttachments(supabase, id, draft.attachments ?? [], userId),
   );
@@ -841,6 +862,8 @@ export async function setShares(
   eventId: string,
   userIds: string[],
   sharedBy: string,
+  /** Who is on this event by standing arrangement rather than by decision. */
+  automatic: string[] = [],
 ) {
   const { error: clearError } = await supabase
     .from("cc_event_shares")
@@ -850,9 +873,87 @@ export async function setShares(
 
   if (!userIds.length) return;
   const { error } = await supabase.from("cc_event_shares").insert(
-    userIds.map((user_id) => ({ event_id: eventId, user_id, shared_by: sharedBy })),
+    userIds.map((user_id) => ({
+      event_id: eventId,
+      user_id,
+      shared_by: sharedBy,
+      automatic: automatic.includes(user_id),
+    })),
   );
   if (error) throw error;
+}
+
+/* ------------------------------------------------------------------ *
+ * Always share with
+ * ------------------------------------------------------------------ */
+
+export async function setAutoShare(supabase: Client, userIds: string[], ownerId: string) {
+  const { error: clearError } = await supabase
+    .from("cc_auto_share")
+    .delete()
+    .eq("owner_id", ownerId);
+  if (clearError) throw clearError;
+  if (!userIds.length) return;
+  const { error } = await supabase
+    .from("cc_auto_share")
+    .insert(userIds.map((user_id) => ({ owner_id: ownerId, user_id })));
+  if (error) throw error;
+}
+
+/**
+ * Puts the people you always share with onto the events you already have —
+ * offered when the arrangement is first made, because "Ellen sees everything"
+ * that starts from today is not what anybody means by it.
+ */
+export async function backfillAutoShare(
+  supabase: Client,
+  userIds: string[],
+  ownerId: string,
+): Promise<number> {
+  if (!userIds.length) return 0;
+
+  const { data: calendars } = await supabase
+    .from("cc_calendars")
+    .select("id")
+    .eq("owner_id", ownerId);
+  const calendarIds = (calendars ?? []).map((c) => c.id as string);
+  if (!calendarIds.length) return 0;
+
+  const { data: events } = await supabase
+    .from("cc_events")
+    .select("id")
+    .in("calendar_id", calendarIds)
+    .is("deleted_at", null);
+  const eventIds = (events ?? []).map((e) => e.id as string);
+  if (!eventIds.length) return 0;
+
+  const rows = eventIds.flatMap((event_id) =>
+    userIds.map((user_id) => ({ event_id, user_id, shared_by: ownerId, automatic: true })),
+  );
+
+  // Anything already shared stays as it is — including a deliberate share,
+  // which must not be quietly downgraded to an automatic one.
+  const { error } = await supabase
+    .from("cc_event_shares")
+    .upsert(rows, { onConflict: "event_id,user_id", ignoreDuplicates: true });
+  if (error) throw error;
+  return eventIds.length;
+}
+
+/** What has been changed on an event, newest first. */
+export async function loadEventChanges(supabase: Client, eventId: string) {
+  const { data } = await supabase
+    .from("cc_event_changes")
+    .select("id,actor_id,summary,created_at")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  return (data ?? []) as {
+    id: string;
+    actor_id: string | null;
+    summary: string;
+    created_at: string;
+  }[];
 }
 
 /* ------------------------------------------------------------------ *

@@ -12,6 +12,7 @@ import { AttachmentList } from "./Attachments";
 import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
 import { EventList } from "./EventList";
+import { EventHistory } from "./EventHistory";
 import { EventNotes } from "./EventNotes";
 import { PrivacyPicker } from "./PrivacyPicker";
 import { RemindersField } from "./RemindersField";
@@ -270,6 +271,8 @@ export function EventDialog({
           </Field>
         )}
 
+        {event && <EventHistory event={event} />}
+
         {event && <NotifyMeField event={event} />}
 
         <Field label="Who else can see it">
@@ -414,6 +417,8 @@ function SharedEventView({
         <Field label="Notes on this event">
           <EventNotes event={event} />
         </Field>
+
+        <EventHistory event={event} />
 
         <NotifyMeField event={event} />
 

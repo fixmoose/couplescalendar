@@ -147,6 +147,16 @@ interface StoreValue extends Data {
   /** How the viewer wants to hear about one event. */
   /** Whether events shared with me mark me busy to my groups. */
   setSharedBusy: (on: boolean) => void;
+  /**
+   * People every new event of mine goes to without my saying so. A standing
+   * arrangement about future events, not access to the calendar.
+   */
+  autoShare: string[];
+  setAutoShare: (userIds: string[]) => void;
+  /** Puts those people on the events I already have. Returns how many. */
+  backfillAutoShare: () => Promise<number>;
+  /** Who else has arranged to see everything of mine — and I of theirs. */
+  autoShareWithMe: string[];
   /** Shared notes: yours, and your groups'. */
   addNote: (note: {
     body: string;
@@ -222,6 +232,7 @@ const EMPTY: Data = {
   notifications: [],
   acknowledged: [],
   notes: [],
+  autoShare: [],
   missing: [],
   busyHidden: [],
 };
@@ -256,6 +267,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const workspace = await db.loadWorkspace(
         supabase,
         new Set(prefs.current.hiddenCalendars),
+        userId,
       );
       setData({ ...workspace, busyHidden: prefs.current.busyHidden });
 
@@ -490,7 +502,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       canEditEvent: (event) =>
         !event.masked &&
         !event.feedId &&
-        canEdit(calendarById(event.calendarId), userId, d.groups),
+        (canEdit(calendarById(event.calendarId), userId, d.groups) ||
+          // A share is not a read-only copy: whoever is on the event can fix
+          // the time on it, and the change is recorded against their name.
+          (event.sharedWith?.includes(userId) ?? false)),
 
       sharedWithMe: contacts
         .map((person) => ({
@@ -567,7 +582,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ],
           }),
           async () => {
-            const id = await db.insertEvent(supabase, draft, userId);
+            const id = await db.insertEvent(supabase, draft, userId, d.autoShare);
             await sendInvites(id, draft);
             await pushFreshShares(supabase, id);
             await refresh();
@@ -595,7 +610,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : e,
           ),
           async () => {
-            await db.updateEvent(supabase, draft.id, draft, userId);
+            await db.updateEvent(supabase, draft.id, draft, userId, d.autoShare);
             await sendInvites(draft.id, draft);
             await pushFreshShares(supabase, draft.id);
             await refresh();
@@ -1227,6 +1242,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           () => db.deleteNote(supabase, id),
         ),
 
+      autoShare: d.autoShare,
+
+      autoShareWithMe: [],
+
+      setAutoShare: (userIds) =>
+        write(
+          (s) => ({ ...s, autoShare: userIds }),
+          async () => {
+            await db.setAutoShare(supabase, userIds, userId);
+          },
+        ),
+
+      backfillAutoShare: async () => {
+        const count = await db.backfillAutoShare(supabase, d.autoShare, userId);
+        await refresh();
+        return count;
+      },
+
       setSharedBusy: (on) =>
         write(
           (s) => ({
@@ -1345,6 +1378,8 @@ function deltaFor(missing: string[]) {
     else if (table === "cc_calendar_feeds") files.add("supabase/delta-calendar-sync.sql");
     else if (table === "cc_notes") files.add("supabase/delta-notes.sql");
     else if (table === "cc_note_events") files.add("supabase/delta-note-events.sql");
+    else if (table === "cc_auto_share" || table === "cc_event_changes")
+      files.add("supabase/delta-always-share.sql");
     else files.add("supabase/schema.sql");
   }
   return [...files].join(" and ");

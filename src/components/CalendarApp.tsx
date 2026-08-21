@@ -168,12 +168,14 @@ export function CalendarApp() {
           start,
           end,
           allDay,
-          sharedWith: [],
+          // Whoever you always share with is already in the field, visible and
+          // removable — a default you can see beats one that happens to you.
+          sharedWith: [...store.autoShare],
           inviteEmails: [],
           reminders: [...DEFAULT_REMINDERS],
         },
       }),
-    [defaultCalendarId],
+    [defaultCalendarId, store.autoShare],
   );
 
   const editEvent = useCallback((event: CalendarEvent) => {
@@ -500,14 +502,14 @@ export function CalendarApp() {
           start,
           end,
           allDay,
-          sharedWith: [],
+          sharedWith: [...store.autoShare],
           inviteEmails: [],
           attachments: stored,
           reminders: [...DEFAULT_REMINDERS],
         },
       });
     },
-    [defaultCalendarId, upload],
+    [defaultCalendarId, store.autoShare, upload],
   );
 
   const dropFilesOnEvent = useCallback(
