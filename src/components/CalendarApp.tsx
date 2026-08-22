@@ -14,6 +14,7 @@ import {
   CalendarDays,
   CalendarPlus,
   Copy,
+  CalendarOff,
   CopyPlus,
   Plus,
   Eye,
@@ -181,17 +182,19 @@ export function CalendarApp() {
   const editEvent = useCallback((event: CalendarEvent) => {
     if (event.masked) return; // nothing to open — we hold no details
     setSelectedId(event.id);
+    const series = event.seriesId ? store.eventById(event.seriesId) : undefined;
     setDialog({
       kind: "event",
       event,
       draft: {
-        id: event.id,
+        id: series?.id ?? event.id,
+        rrule: event.rrule,
         calendarId: event.calendarId,
         title: event.title,
         notes: event.notes ?? "",
         location: event.location ?? "",
-        start: new Date(event.start),
-        end: new Date(event.end),
+        start: new Date(series?.start ?? event.start),
+        end: new Date(series?.end ?? event.end),
         allDay: event.allDay,
         sharedWith: event.sharedWith,
         inviteEmails: [],
@@ -204,7 +207,7 @@ export function CalendarApp() {
         })),
       },
     });
-  }, []);
+  }, [store]);
 
   /** People I share a group with — the audience for per-event sharing. */
   const contacts = useMemo(() => {
@@ -402,13 +405,31 @@ export function CalendarApp() {
           ],
         },
         { kind: "separator" },
-        {
-          label: "Delete",
-          icon: <Trash2 size={13} />,
-          danger: true,
-          disabled: !editable,
-          onSelect: () => store.deleteEvent(event.id),
-        },
+        ...(event.seriesId
+          ? [
+              {
+                label: "Skip just this one",
+                icon: <CalendarOff size={13} />,
+                disabled: !editable,
+                onSelect: () => store.deleteEvent(event.id, "one"),
+              },
+              {
+                label: "Delete every one of these",
+                icon: <Trash2 size={13} />,
+                danger: true,
+                disabled: !editable,
+                onSelect: () => store.deleteEvent(event.id, "all"),
+              },
+            ]
+          : [
+              {
+                label: "Delete",
+                icon: <Trash2 size={13} />,
+                danger: true,
+                disabled: !editable,
+                onSelect: () => store.deleteEvent(event.id),
+              },
+            ]),
       ];
 
       setMenu({ x: e.clientX, y: e.clientY, items });
@@ -573,6 +594,14 @@ export function CalendarApp() {
     start.setHours(9, 0, 0, 0);
     openEventDialog(start, addHours(start, 1), false);
   }, [date, openEventDialog, slot]);
+
+  useEffect(() => {
+    const from = new Date(date);
+    from.setMonth(from.getMonth() - 2, 1);
+    const to = new Date(date);
+    to.setMonth(to.getMonth() + 4, 1);
+    store.ensureRange(from, to);
+  }, [date, store]);
 
   const step = useCallback(
     (direction: 1 | -1) =>

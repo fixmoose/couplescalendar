@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { RRule } from "rrule";
 import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/server";
 
@@ -15,6 +16,45 @@ export const maxDuration = 60;
 /** How late a reminder may be sent before it is pointless. */
 const GRACE_MINUTES = 90;
 
+/**
+ * When this reminder is next due, or null if it is not.
+ *
+ * A repeating event keeps its first occurrence in starts_at, which for the
+ * mortgage is a date years ago — so asking whether starts_at is close enough
+ * would silence every recurring reminder there is. The rule is expanded around
+ * now instead, narrowly: only the window in which this particular reminder
+ * could be firing.
+ */
+function dueOccurrence(
+  event: { starts_at: string; rrule?: string | null },
+  minutesBefore: number,
+  now: number,
+): Date | null {
+  const offsetMs = minutesBefore * 60_000;
+  const graceMs = GRACE_MINUTES * 60_000;
+  const isDue = (start: number) => {
+    const fireAt = start - offsetMs;
+    return fireAt <= now && now - fireAt <= graceMs;
+  };
+
+  if (!event.rrule) {
+    const start = new Date(event.starts_at).getTime();
+    return isDue(start) ? new Date(start) : null;
+  }
+
+  try {
+    // An occurrence can only be due if it starts inside this window.
+    const from = new Date(now - graceMs + offsetMs);
+    const to = new Date(now + offsetMs);
+    for (const occurrence of RRule.fromString(event.rrule).between(from, to, true)) {
+      if (isDue(occurrence.getTime())) return occurrence;
+    }
+  } catch {
+    // An unreadable rule should not take the rest of the run down with it.
+  }
+  return null;
+}
+
 interface DueRow {
   id: string;
   minutes_before: number;
@@ -22,6 +62,7 @@ interface DueRow {
     id: string;
     title: string;
     starts_at: string;
+    rrule?: string | null;
     location: string | null;
     all_day: boolean;
     created_by: string;
@@ -49,24 +90,46 @@ export async function GET(request: Request) {
   const admin = createAdminClient();
   const now = Date.now();
 
-  // Only events close enough that some reminder could plausibly be due.
+  /*
+   * Everything with an email reminder whose event is either coming up or
+   * repeats. A repeating event is not filtered by date here — its first
+   * occurrence tells you nothing about when the next one is.
+   */
   const horizon = new Date(now + 31 * 86400_000).toISOString();
-  const { data, error } = await admin
-    .from("cc_event_reminders")
-    .select(
-      "id,minutes_before,event:cc_events!inner(id,title,starts_at,location,all_day,created_by,calendar_id)",
-    )
-    .eq("channel", "email")
-    .gte("cc_events.starts_at", new Date(now - GRACE_MINUTES * 60_000).toISOString())
-    .lte("cc_events.starts_at", horizon);
+  const select =
+    "id,minutes_before,event:cc_events!inner(id,title,starts_at,rrule,location,all_day,created_by,calendar_id)";
 
+  const [soon, repeating] = await Promise.all([
+    admin
+      .from("cc_event_reminders")
+      .select(select)
+      .eq("channel", "email")
+      .is("cc_events.rrule", null)
+      .gte("cc_events.starts_at", new Date(now - GRACE_MINUTES * 60_000).toISOString())
+      .lte("cc_events.starts_at", horizon),
+    admin
+      .from("cc_event_reminders")
+      .select(select)
+      .eq("channel", "email")
+      .not("cc_events.rrule", "is", null),
+  ]);
+
+  const error = soon.error ?? repeating.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = (data ?? []) as unknown as DueRow[];
-  const due = rows.filter((row) => {
-    const fireAt = new Date(row.event.starts_at).getTime() - row.minutes_before * 60_000;
-    return fireAt <= now && now - fireAt <= GRACE_MINUTES * 60_000;
-  });
+  const rows = [
+    ...((soon.data ?? []) as unknown as DueRow[]),
+    ...((repeating.data ?? []) as unknown as DueRow[]),
+  ];
+  const due = rows
+    .map((row) => ({ row, at: dueOccurrence(row.event, row.minutes_before, now) }))
+    .filter((x): x is { row: DueRow; at: Date } => x.at !== null)
+    .map(({ row, at }) => ({
+      ...row,
+      // The occurrence this send is about, so the email says the right date and
+      // the delivery row keeps them apart.
+      event: { ...row.event, starts_at: at.toISOString() },
+    }));
 
   let sent = 0;
   const skipped: string[] = [];
@@ -181,24 +244,40 @@ async function pushDueReminders(admin: ReturnType<typeof createAdminClient>) {
   if (!configuredPush()) return 0;
 
   const now = Date.now();
-  const { data } = await admin
-    .from("cc_event_reminders")
-    .select(
-      "id,minutes_before,user_id,event:cc_events!inner(id,title,starts_at,location,all_day,created_by,calendar_id,deleted_at)",
-    )
-    .eq("channel", "browser")
-    .gte("cc_events.starts_at", new Date(now - GRACE_MINUTES * 60_000).toISOString())
-    .lte("cc_events.starts_at", new Date(now + 31 * 86400_000).toISOString());
+  const select =
+    "id,minutes_before,user_id,event:cc_events!inner(id,title,starts_at,rrule,location,all_day,created_by,calendar_id,deleted_at)";
+
+  const [soon, repeating] = await Promise.all([
+    admin
+      .from("cc_event_reminders")
+      .select(select)
+      .eq("channel", "browser")
+      .is("cc_events.rrule", null)
+      .gte("cc_events.starts_at", new Date(now - GRACE_MINUTES * 60_000).toISOString())
+      .lte("cc_events.starts_at", new Date(now + 31 * 86400_000).toISOString()),
+    admin
+      .from("cc_event_reminders")
+      .select(select)
+      .eq("channel", "browser")
+      .not("cc_events.rrule", "is", null),
+  ]);
+
+  const data = [
+    ...((soon.data ?? []) as unknown as (DueRow & { user_id: string | null })[]),
+    ...((repeating.data ?? []) as unknown as (DueRow & { user_id: string | null })[]),
+  ];
 
   let pushed = 0;
 
-  for (const row of (data ?? []) as unknown as (DueRow & { user_id: string | null })[]) {
+  for (const row of data) {
     if ((row.event as { deleted_at?: string }).deleted_at) continue;
 
-    const fireAt = new Date(row.event.starts_at).getTime() - row.minutes_before * 60_000;
-    if (fireAt > now || now - fireAt > GRACE_MINUTES * 60_000) continue;
+    const occurrence = dueOccurrence(row.event, row.minutes_before, now);
+    if (!occurrence) continue;
 
-    const dueAt = new Date(fireAt).toISOString();
+    // Everything below talks about this occurrence, not the series' first.
+    row.event = { ...row.event, starts_at: occurrence.toISOString() };
+    const dueAt = new Date(occurrence.getTime() - row.minutes_before * 60_000).toISOString();
 
     // Whose reminder: one person's, or everyone the event reaches.
     const recipients = new Set<string>();

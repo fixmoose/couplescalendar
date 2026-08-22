@@ -78,6 +78,14 @@ export interface Attachment {
 }
 
 export interface CalendarEvent {
+  /** An RRULE, when this event repeats. One row, many occurrences. */
+  rrule?: string;
+  /**
+   * Set on an expanded occurrence: the series it belongs to, and which one.
+   * Absent on an ordinary event, where `id` is the row itself.
+   */
+  seriesId?: string;
+  occurrenceStart?: string;
   id: string;
   calendarId: string;
   title: string;
@@ -141,6 +149,8 @@ export interface Note {
 /** Draft used by the event dialog before an id exists. */
 export interface EventDraft {
   id?: string;
+  /** An RRULE, when the event repeats. */
+  rrule?: string;
   calendarId: string;
   title: string;
   notes: string;

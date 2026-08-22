@@ -16,6 +16,7 @@ import * as db from "./db";
 import { inviteToEvent } from "./invites";
 import { usePresence, type Presence } from "./presence";
 import { deliverNow } from "./push";
+import { expandRepeats, splitOccurrenceId } from "./repeat";
 import { publicUrl } from "./site";
 import { createClient, ensureSession } from "./supabase/client";
 import type {
@@ -99,6 +100,8 @@ interface StoreValue extends Data {
   contacts: Person[];
   togglePersonBusy: (personId: string) => void;
   visibleEvents: CalendarEvent[];
+  /** The stored row behind an id — the series itself, not an occurrence. */
+  eventById: (id: string) => CalendarEvent | undefined;
   participantsOf: (event: CalendarEvent) => Person[];
   canEditEvent: (event: CalendarEvent) => boolean;
   sharedWithMe: { person: Person; count: number }[];
@@ -115,7 +118,12 @@ interface StoreValue extends Data {
   createEvent: (draft: EventDraft) => void;
   updateEvent: (draft: EventDraft & { id: string }) => void;
   rescheduleEvent: (id: string, start: Date, end: Date, allDay?: boolean) => void;
-  deleteEvent: (id: string) => void;
+  /**
+   * "one" takes a single occurrence out of a repeating event; "all" removes
+   * the event itself. Meaningless for an event that does not repeat, where
+   * both do the same thing.
+   */
+  deleteEvent: (id: string, scope?: "one" | "all") => void;
   restoreEvent: (id: string) => void;
   purgeEvent: (id: string) => void;
   loadDeleted: () => Promise<DeletedEvent[]>;
@@ -233,6 +241,12 @@ interface StoreValue extends Data {
   /** Who is looking at their calendar right now. */
   presenceOf: (personId: string) => Presence | undefined;
   myPresence: Presence;
+  /**
+   * Tells the store which stretch of time is being looked at, so repeating
+   * events are worked out far enough ahead. Widening only; it never shrinks
+   * mid-session, because something just scrolled past should not vanish.
+   */
+  ensureRange: (from: Date, to: Date) => void;
   /** Exposed so attachment previews can mint signed URLs. */
   supabase: SupabaseClient;
 }
@@ -251,6 +265,7 @@ const EMPTY: Data = {
   notes: [],
   autoShare: [],
   joinRequests: [],
+  skippedOccurrences: [],
   missing: [],
   busyHidden: [],
 };
@@ -259,6 +274,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [data, setData] = useState<Data | null>(null);
+
+  /**
+   * The stretch of time occurrences are worked out for. It follows what is
+   * being looked at rather than covering all of history, so a daily event does
+   * not become ten thousand objects on the first paint.
+   */
+  const [horizon, setHorizon] = useState(() => {
+    const from = new Date();
+    from.setMonth(from.getMonth() - 6, 1);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setMonth(to.getMonth() + 30);
+    return { from, to };
+  });
   const [error, setError] = useState<string | null>(null);
   const prefs = useRef<ViewPrefs>({ hiddenCalendars: [], busyHidden: [] });
   /**
@@ -441,9 +470,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const busyHidden = new Set(d.busyHidden);
     const contacts = d.people.filter((p) => p.id !== userId);
 
+    /*
+     * A repeating event arrives as one row with a rule on it. Everything
+     * downstream — the grids, the agenda, search, reminders — works in
+     * occurrences, so they are worked out here, once, for a window around
+     * whatever is being looked at. Nothing about the expansion is stored.
+     */
+    const events = expandRepeats(
+      d.events,
+      horizon.from,
+      horizon.to,
+      new Set(d.skippedOccurrences),
+    );
+
     // The feed already decided what may be seen; this applies only the
     // viewer's own show/hide switches.
-    const visibleEvents = d.events.filter((event) => {
+    const visibleEvents = events.filter((event) => {
       if (event.masked) return !busyHidden.has(event.createdBy);
       const calendar = calendarById(event.calendarId);
       if (calendar && mine.has(calendar.id)) return calendar.visible;
@@ -492,7 +534,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return Boolean(group?.memberIds.includes(personId));
     };
 
-    return {
+    const value: StoreValue = {
       ...d,
       supabase,
       presenceOf: (personId) => presence.people[personId],
@@ -528,22 +570,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sharedWithMe: contacts
         .map((person) => ({
           person,
-          count: d.events.filter((e) => !e.masked && e.createdBy === person.id).length,
+          count: events.filter((e) => !e.masked && e.createdBy === person.id).length,
         }))
         .filter((row) => row.count > 0),
 
       iShareWith: contacts
         .map((person) => ({
           person,
-          count: d.events.filter(
+          count: events.filter(
             (e) => !e.masked && e.createdBy === userId && reaches(e, person.id),
           ).length,
         }))
         .filter((row) => row.count > 0),
 
       trafficWith: (personId) => ({
-        from: d.events.filter((e) => !e.masked && e.createdBy === personId).length,
-        to: d.events.filter(
+        from: events.filter((e) => !e.masked && e.createdBy === personId).length,
+        to: events.filter(
           (e) => !e.masked && e.createdBy === userId && reaches(e, personId),
         ).length,
       }),
@@ -556,7 +598,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           d.calendars.filter((c) => c.groupId === groupId).map((c) => c.id),
         );
 
-        return d.events.filter((event) => {
+        return events.filter((event) => {
           if (groupCalendars.has(event.calendarId)) return true;
           if (event.masked) return members.has(event.createdBy);
           // Anything passing between these people, wherever it lives.
@@ -568,8 +610,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       itemsWith: (personId) => ({
-        fromThem: d.events.filter((e) => !e.masked && e.createdBy === personId),
-        toThem: d.events.filter(
+        fromThem: events.filter((e) => !e.masked && e.createdBy === personId),
+        toThem: events.filter(
           (e) => !e.masked && e.createdBy === userId && reaches(e, personId),
         ),
       }),
@@ -636,12 +678,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ),
 
       rescheduleEvent: (id, start, end, allDay) => {
-        const before = d.events.find((e) => e.id === id);
+        const { eventId, start: occurrence } = splitOccurrenceId(id);
+
+        /*
+         * Dragging one occurrence of a repeating event moves that one, not the
+         * series: the occurrence is lifted out and left standing on its own.
+         * Moving the whole series is done from the dialog, where it can say so.
+         */
+        if (occurrence) {
+          const series = d.events.find((e) => e.id === eventId);
+          if (!series) return;
+          void (async () => {
+            try {
+              const copy = await db.insertEvent(
+                supabase,
+                {
+                  calendarId: series.calendarId,
+                  title: series.title,
+                  notes: series.notes ?? "",
+                  location: series.location ?? "",
+                  start,
+                  end,
+                  allDay: allDay ?? series.allDay,
+                  sharedWith: series.sharedWith,
+                  inviteEmails: [],
+                  privacy: series.privacy,
+                  importance: series.importance,
+                  reminders: series.reminders?.map((r) => ({
+                    minutesBefore: r.minutesBefore,
+                    channel: r.channel,
+                    forEveryone: !r.userId,
+                  })),
+                },
+                userId,
+                d.autoShare,
+              );
+              await db.skipOccurrence(supabase, eventId, occurrence, copy);
+              await refresh();
+            } catch (e) {
+              setError(describe(e, "moving that one"));
+            }
+          })();
+          return;
+        }
+
+        const before = d.events.find((e) => e.id === eventId);
         if (before) {
           pushUndo({
             label: `Moved “${before.title}”`,
             undo: async () => {
-              await db.patchEvent(supabase, id, {
+              await db.patchEvent(supabase, eventId, {
                 starts_at: before.start,
                 ends_at: before.end,
                 all_day: before.allDay,
@@ -652,7 +738,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return write(
           mapEvents((e) =>
-            e.id === id
+            e.id === eventId
               ? {
                   ...e,
                   start: start.toISOString(),
@@ -662,7 +748,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : e,
           ),
           () =>
-            db.patchEvent(supabase, id, {
+            db.patchEvent(supabase, eventId, {
               starts_at: start.toISOString(),
               ends_at: end.toISOString(),
               ...(allDay === undefined ? {} : { all_day: allDay }),
@@ -670,16 +756,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
       },
 
-      deleteEvent: (id) => {
-        const event = d.events.find((e) => e.id === id);
+      deleteEvent: (id, scope = "all") => {
+        const { eventId, start: occurrence } = splitOccurrenceId(id);
+        const event = d.events.find((e) => e.id === eventId);
+
+        // Just this Tuesday: the series stays, with a hole in it.
+        if (occurrence && scope === "one") {
+          write(
+            (s) => ({
+              ...s,
+              skippedOccurrences: [
+                ...s.skippedOccurrences,
+                `${eventId}::${occurrence.toISOString()}`,
+              ],
+            }),
+            async () => {
+              await db.skipOccurrence(supabase, eventId, occurrence);
+              pushUndo({
+                label: `Skipped one “${event?.title ?? "event"}”`,
+                undo: async () => {
+                  await db.unskipOccurrence(supabase, eventId, occurrence);
+                  await refresh();
+                },
+              });
+            },
+          );
+          return;
+        }
+
         write(
-          (s) => ({ ...s, events: s.events.filter((e) => e.id !== id) }),
+          (s) => ({ ...s, events: s.events.filter((e) => e.id !== eventId) }),
           async () => {
-            await db.deleteEvent(supabase, id);
+            await db.deleteEvent(supabase, eventId);
             pushUndo({
               label: `Deleted “${event?.title ?? "event"}”`,
               undo: async () => {
-                await db.restoreEvent(supabase, id);
+                await db.restoreEvent(supabase, eventId);
                 await refresh();
               },
             });
@@ -1340,6 +1452,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return count;
       },
 
+      eventById: (id) =>
+        d.events.find((e) => e.id === splitOccurrenceId(id).eventId),
+
+      ensureRange: (from, to) => {
+        setHorizon((current) => {
+          const wantFrom = from < current.from ? new Date(from) : current.from;
+          const wantTo = to > current.to ? new Date(to) : current.to;
+          if (wantFrom.getTime() === current.from.getTime()
+              && wantTo.getTime() === current.to.getTime()) {
+            return current;
+          }
+          // A year of slack, so paging month by month does not rebuild the
+          // list on every step.
+          if (from < current.from) wantFrom.setMonth(wantFrom.getMonth() - 12);
+          if (to > current.to) wantTo.setMonth(wantTo.getMonth() + 12);
+          return { from: wantFrom, to: wantTo };
+        });
+      },
+
       setSharedBusy: (on) =>
         write(
           (s) => ({
@@ -1382,7 +1513,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((s) => (s ? { ...s, busyHidden: [...hidden] } : s));
       },
     };
-  }, [data, error, presence, pushUndo, refresh, savePrefs, supabase, undo, user, write]);
+
+    /*
+     * Everything on screen works in occurrences, so an id arriving from a
+     * click is "<row>::<when>" whenever the event repeats. These all act on
+     * the row behind it — colouring the series, adding to its list, pinning a
+     * note to it — so the id is normalised here rather than in each of them.
+     *
+     * The ones that need to know which occurrence they were given (skipping
+     * just one, dragging one to another day) take the full id and are
+     * deliberately absent from this list.
+     */
+    const series = (id: string) => splitOccurrenceId(id).eventId;
+
+    return {
+      ...value,
+      toggleEventShare: (id, personId) => value.toggleEventShare(series(id), personId),
+      moveEventToCalendar: (id, calendarId) =>
+        value.moveEventToCalendar(series(id), calendarId),
+      setEventColor: (id, color) => value.setEventColor(series(id), color),
+      setEventPrivacy: (id, privacy) => value.setEventPrivacy(series(id), privacy),
+      setEventImportance: (id, importance) =>
+        value.setEventImportance(series(id), importance),
+      setEventReminders: (id, reminders) =>
+        value.setEventReminders(series(id), reminders),
+      setListKind: (id, kind) => value.setListKind(series(id), kind),
+      addItem: (id, item) => value.addItem(series(id), item),
+      removeItem: (id, itemId) => value.removeItem(series(id), itemId),
+      attachToEvent: (id, attachments) => value.attachToEvent(series(id), attachments),
+      removeAttachment: (id, attachmentId) =>
+        value.removeAttachment(series(id), attachmentId),
+      setEventSubscription: (id, patch) => value.setEventSubscription(series(id), patch),
+      notesFor: (id) => value.notesFor(series(id)),
+      pinNoteTo: (noteId, id) => value.pinNoteTo(noteId, series(id)),
+      unpinNoteFrom: (noteId, id) => value.unpinNoteFrom(noteId, series(id)),
+    };
+  }, [data, error, horizon, presence, pushUndo, refresh, savePrefs, supabase, undo, user, write]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

@@ -2,7 +2,7 @@
 import clsx from "clsx";
 
 import { format } from "date-fns";
-import { Bell, Check, Mail, Paperclip, Smartphone, Trash2 } from "lucide-react";
+import { Bell, Check, Mail, Paperclip, Repeat, Smartphone, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { uploadAttachment } from "@/lib/db";
 import { MAX_FILE_BYTES, formatBytes } from "@/lib/files";
@@ -13,6 +13,8 @@ import { PeopleStack, ProvenanceIcon, useEventPeople } from "./Participants";
 import { useFileDrop } from "./useFileDrop";
 import { EventList } from "./EventList";
 import { EventHistory } from "./EventHistory";
+import { RepeatField } from "./RepeatField";
+import { describeRule } from "@/lib/repeat";
 import { EventNotes } from "./EventNotes";
 import { PrivacyPicker } from "./PrivacyPicker";
 import { RemindersField } from "./RemindersField";
@@ -189,6 +191,14 @@ export function EventDialog({
               />
             )}
           </div>
+        </Field>
+
+        <Field label="Repeats">
+          <RepeatField
+            rule={form.rrule}
+            start={form.start}
+            onChange={(rrule) => set("rrule", rrule)}
+          />
         </Field>
 
         <Field label="Calendar">
@@ -412,6 +422,13 @@ function SharedEventView({
           <Field label="List">
             <EventList event={event} />
           </Field>
+        )}
+
+        {describeRule(event.rrule) && (
+          <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-[13px] text-ink-muted">
+            <Repeat size={14} className="shrink-0 text-ink-faint" />
+            {describeRule(event.rrule)}
+          </div>
         )}
 
         <Field label="Notes on this event">

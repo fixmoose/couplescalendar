@@ -84,7 +84,8 @@ const toCalendar = (row: CalendarRow, visible: boolean): Calendar => ({
   visible,
 });
 
-interface FeedRow {
+/** A row of cc_calendar_feed: one event, as this viewer may see it. */
+interface EventRow {
   id: string;
   calendar_id: string;
   owner_id: string;
@@ -101,6 +102,7 @@ interface FeedRow {
   feed_id: string | null;
   list_kind: ListKind | null;
   masked: boolean;
+  rrule: string | null;
 }
 
 interface AttachmentRow {
@@ -167,6 +169,8 @@ export interface Workspace {
   autoShare: string[];
   /** Who the groups have been asked to let in. */
   joinRequests: JoinRequest[];
+  /** Occurrences of repeating events that are not happening. */
+  skippedOccurrences: string[];
   /** Tables the database does not have yet, so the UI can say which. */
   missing: string[];
 }
@@ -500,7 +504,7 @@ export async function loadWorkspace(
   hiddenCalendarIds: Set<string>,
   userId: string,
 ): Promise<Workspace> {
-  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds, autoShare, joinRequests, joinVotes] =
+  const [profiles, groups, members, calendars, feed, guests, attachments, invites, reminders, subscriptions, acks, items, notifications, notes, noteLinks, feeds, autoShare, joinRequests, joinVotes, exceptions] =
     await Promise.all([
       supabase
         .from("cc_profiles")
@@ -514,7 +518,7 @@ export async function loadWorkspace(
       supabase
         .from("cc_calendar_feed")
         .select(
-          "id,calendar_id,owner_id,title,notes,location,starts_at,ends_at,all_day,color,privacy,importance,created_by,feed_id,list_kind,masked",
+          "id,calendar_id,owner_id,title,notes,location,starts_at,ends_at,all_day,color,privacy,importance,created_by,feed_id,list_kind,masked,rrule",
         ),
       supabase.from("cc_event_guests").select("event_id,user_id"),
       supabase
@@ -560,6 +564,7 @@ export async function loadWorkspace(
         .in("status", ["pending", "approved"])
         .order("created_at", { ascending: false }),
       supabase.from("cc_group_join_votes").select("request_id,user_id,approve"),
+      supabase.from("cc_event_exceptions").select("event_id,occurrence_start,override_id"),
     ]);
 
   /**
@@ -590,6 +595,7 @@ export async function loadWorkspace(
     cc_auto_share: autoShare,
     cc_group_join_requests: joinRequests,
     cc_group_join_votes: joinVotes,
+    cc_event_exceptions: exceptions,
   };
 
   const missing: string[] = [];
@@ -656,7 +662,7 @@ export async function loadWorkspace(
     calendars: ((calendars.data ?? []) as CalendarRow[]).map((row) =>
       toCalendar(row, !hiddenCalendarIds.has(row.id)),
     ),
-    events: ((feed.data ?? []) as FeedRow[]).map((row) => ({
+    events: ((feed.data ?? []) as unknown as EventRow[]).map((row) => ({
       id: row.id,
       calendarId: row.calendar_id,
       title: row.title,
@@ -677,9 +683,10 @@ export async function loadWorkspace(
       listKind: (row.list_kind ?? "todo") as ListKind,
       items: itemsByEvent.get(row.id),
       masked: row.masked || undefined,
+      rrule: row.rrule ?? undefined,
     })),
     invites: ((invites.data ?? []) as InviteRow[]).map(toInvite),
-    feeds: ((feeds.data ?? []) as FeedRow[]).map(toFeed),
+    feeds: ((feeds.data ?? []) as unknown as FeedRow[]).map(toFeed),
     notifications: ((notifications.data ?? []) as NotificationRow[]).map(toNotification),
     acknowledged: ((acks.data ?? []) as { reminder_id: string; due_at: string }[]).map(
       (row) => `${row.reminder_id}:${new Date(row.due_at).toISOString()}`,
@@ -707,6 +714,11 @@ export async function loadWorkspace(
         .map((v) => ({ userId: v.user_id, approve: v.approve })),
       createdAt: row.created_at,
     })),
+    // "<event id>::<occurrence ISO>" for the occurrences that are not
+    // happening — skipped outright, or moved and living as their own event.
+    skippedOccurrences: (
+      (exceptions.data ?? []) as { event_id: string; occurrence_start: string }[]
+    ).map((row) => `${row.event_id}::${new Date(row.occurrence_start).toISOString()}`),
     missing,
   };
 }
@@ -726,6 +738,7 @@ const eventPayload = (draft: EventDraft) => ({
   all_day: draft.allDay,
   privacy: draft.privacy ?? null,
   importance: draft.importance ?? "normal",
+  rrule: draft.rrule ?? null,
 });
 
 /** Names the step that failed, so a refusal says which write was refused. */
@@ -920,6 +933,45 @@ interface VoteRow {
   request_id: string;
   user_id: string;
   approve: boolean;
+}
+
+/* ------------------------------------------------------------------ *
+ * Repeating events
+ * ------------------------------------------------------------------ */
+
+/**
+ * Takes one occurrence out of a series — the bins that were not collected,
+ * the payment that did not go out. The rule is untouched; this is the
+ * exception to it.
+ */
+export async function skipOccurrence(
+  supabase: Client,
+  eventId: string,
+  occurrenceStart: Date,
+  overrideId?: string,
+) {
+  const { error } = await supabase.from("cc_event_exceptions").upsert(
+    {
+      event_id: eventId,
+      occurrence_start: occurrenceStart.toISOString(),
+      override_id: overrideId ?? null,
+    },
+    { onConflict: "event_id,occurrence_start" },
+  );
+  if (error) throw error;
+}
+
+export async function unskipOccurrence(
+  supabase: Client,
+  eventId: string,
+  occurrenceStart: Date,
+) {
+  const { error } = await supabase
+    .from("cc_event_exceptions")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("occurrence_start", occurrenceStart.toISOString());
+  if (error) throw error;
 }
 
 /* ------------------------------------------------------------------ *
